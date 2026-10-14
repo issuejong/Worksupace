@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
   try {
     requireSameOrigin(request);
     const input = z.discriminatedUnion("action", [
-      z.object({ action: z.literal("join"), teamId: z.uuid(), code: z.string().trim().toUpperCase().length(12) }),
+      z.object({ action: z.literal("join"), teamId: z.uuid(), code: z.string().trim().toUpperCase().length(12), name: z.string().trim().min(1).max(32) }),
       z.object({ action: z.literal("leave") }),
     ]).parse(await jsonBody(request));
     if (input.action === "leave") {
@@ -27,11 +27,16 @@ export async function POST(request: NextRequest) {
     if (attempts[0].count > 12) throw new AppError("시도 횟수가 많습니다. 15분 뒤 다시 시도해 주세요.", 429, "TOO_MANY_ATTEMPTS");
     const token = newToken();
     const team = await db().begin(async tx => {
+      // Serialize team renames so two representatives cannot claim the same name at once.
+      await tx`select pg_advisory_xact_lock(20261014, 1)`;
       const teams = await tx`select id,number,name from public.teams where id=${input.teamId} and code_hash=${hash(input.code)} limit 1 for update`;
       if (!teams.length) throw new AppError("참가 코드가 올바르지 않습니다.", 401, "INVALID_CODE");
+      const duplicate = await tx`select id from public.teams where lower(name)=lower(${input.name}) and id<>${input.teamId} limit 1`;
+      if (duplicate.length) throw new AppError("이미 다른 팀이 사용 중인 이름입니다.", 409, "TEAM_NAME_TAKEN");
+      const renamed = await tx`update public.teams set name=${input.name} where id=${input.teamId} returning id,number,name`;
       await tx`update public.team_sessions set revoked_at=now() where team_id=${input.teamId} and revoked_at is null`;
       await tx`insert into public.team_sessions(team_id,token_hash,expires_at) values (${input.teamId},${hash(token)},now()+interval '12 hours')`;
-      return teams[0];
+      return renamed[0];
     });
     const response = NextResponse.json({ team }, { headers: { "Cache-Control": "no-store" } });
     setTeamCookie(response, token);

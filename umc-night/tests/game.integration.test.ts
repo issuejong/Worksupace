@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { NextRequest } from "next/server";
+import { POST as joinTeam } from "../app/api/join/route";
+import { hash } from "../lib/server/auth";
 import { db } from "../lib/server/db";
 import { correctGrade, gradeCurrent, startRun, stateFor, submitAnswer, transitionRun } from "../lib/server/game";
 
@@ -9,12 +12,14 @@ const suite = testUrl ? describe : describe.skip;
 
 suite("live game against isolated PostgreSQL", () => {
   const actor = randomUUID();
+  const joinCode = "ABCDEFGHJKLM";
+  const testIp = "192.0.2.31";
   let teamA = ""; let teamB = ""; let teamC = ""; let roundId = ""; let runId = "";
   beforeAll(async () => {
     const sql = db();
     const existing = await sql`select count(*)::integer as count from public.teams`;
     if (existing[0].count !== 0) throw new Error("Integration test requires an empty dedicated database");
-    teamA = (await sql`insert into public.teams(number,name,code_hash) values (1,'A',${randomUUID()}) returning id`)[0].id;
+    teamA = (await sql`insert into public.teams(number,name,code_hash) values (1,'A',${hash(joinCode)}) returning id`)[0].id;
     teamB = (await sql`insert into public.teams(number,name,code_hash) values (2,'B',${randomUUID()}) returning id`)[0].id;
     teamC = (await sql`insert into public.teams(number,name,code_hash) values (3,'C',${randomUUID()}) returning id`)[0].id;
     roundId = (await sql`insert into public.rounds(title,position) values ('Test round',0) returning id`)[0].id;
@@ -26,8 +31,25 @@ suite("live game against isolated PostgreSQL", () => {
     const sql = db();
     if (runId) await sql`delete from public.runs where id=${runId}`;
     if (roundId) await sql`delete from public.rounds where id=${roundId}`;
+    if (teamA) await sql`delete from public.join_attempts where key_hash=${hash(testIp + ":" + teamA)}`;
     if (teamA) await sql`delete from public.teams where id in (${teamA},${teamB},${teamC})`;
     await sql.end();
+  });
+  it("lets a representative name the team only with its code and a unique name", async () => {
+    const join = (code: string, name: string) => joinTeam(new NextRequest("http://localhost/api/join", {
+      method: "POST",
+      headers: { origin: "http://localhost", "content-type": "application/json", "x-forwarded-for": testIp },
+      body: JSON.stringify({ action: "join", teamId: teamA, code, name }),
+    }));
+    expect((await join("ZZZZZZZZZZZZ", "아코팀")).status).toBe(401);
+    expect((await join(joinCode, "B")).status).toBe(409);
+    expect((await db()`select name from public.teams where id=${teamA}`)[0].name).toBe("A");
+    const joined = await join(joinCode, "아코팀");
+    expect(joined.status).toBe(200);
+    expect(joined.headers.get("set-cookie")).toContain("umc_team_session=");
+    expect((await stateFor("screen")).teams.find(team => team.id === teamA)?.name).toBe("아코팀");
+    expect((await join(joinCode, "아코팀 2")).status).toBe(200);
+    expect((await db()`select count(*)::integer as count from public.team_sessions where team_id=${teamA} and revoked_at is null`)[0].count).toBe(1);
   });
   it("hides answers until reveal, closes by database time, scores once, and reverses corrections", async () => {
     const started = await startRun("rehearsal"); runId = started.runId;

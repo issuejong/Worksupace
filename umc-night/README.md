@@ -5,7 +5,7 @@
 ## 현재 구현
 
 - 주관식·객관식·O/X, 문제·정답 공개 이미지, 라운드와 출제 순서
-- 팀별 12자리 코드 참가, 대표 기기 세션, 답안 수정·재접속
+- 팀별 12자리 코드 참가, 참가 시 팀 대표가 이름 지정, 대표 기기 세션, 답안 수정·재접속
 - 문제 시작 → 답변 → 일시정지/재개 → 마감 → 정답 공개 → 채점 → 다음 문제/최종 순위
 - 객관식·O/X 자동 채점, 주관식 진행자 판정, 정답이면 전액·오답이면 0점
 - 점수 정정과 이력, 연습 문제, 리허설 모드와 초기화, 결과 JSON 다운로드
@@ -26,7 +26,7 @@ npm run dev
 
 1. Supabase 무료 프로젝트를 생성하고 SQL Editor에서 `supabase/migrations/202610140001_init.sql`을 실행합니다. `quiz-media` 비공개 Storage 버킷도 생성됩니다.
 2. Supabase Authentication에서 진행자 계정을 만듭니다. 해당 사용자의 UUID를 확인하고 SQL Editor에서 `insert into public.host_users(user_id) values ('사용자-UUID');`를 실행합니다.
-3. `npm run dev`로 실행한 뒤 `/admin`에서 로그인합니다. `/admin/setup`에서 3팀을 등록하고 생성된 코드를 각각 저장합니다. 코드는 생성 직후 한 번만 표시되며 DB에는 해시만 남습니다.
+3. `npm run dev`로 실행한 뒤 `/admin`에서 로그인합니다. `/admin/setup`에서 3팀의 참가 코드를 만들고 각각 저장합니다. 코드는 생성 직후 한 번만 표시되며 DB에는 해시만 남습니다. 팀 대표가 `/join`에서 팀 번호·이름·코드를 입력하면 해당 이름이 순위표에 표시됩니다.
 4. 라운드와 문제를 등록하고 `/admin/live`에서 연습 게임을 만든 뒤 `/join`, `/play`, `/screen`을 각각 확인합니다.
 
 개발 시 `npm run typecheck`, `npm run build`, `npm test`를 실행합니다. 실제 DB 흐름 통합 테스트는 **비어 있는 별도 테스트 DB**에 마이그레이션을 적용한 후 `TEST_DATABASE_URL=postgresql://... npm test`로 실행합니다. 테스트는 기존 팀 데이터가 있으면 중단합니다.
