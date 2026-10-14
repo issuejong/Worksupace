@@ -22,7 +22,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-`DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`에 본인 Supabase 프로젝트 값을 넣어야 데이터 기능이 동작합니다. `DATABASE_URL`은 Supabase Postgres **Transaction pooler** 연결 문자열을 사용합니다. 모든 값은 서버 전용이며 `NEXT_PUBLIC_` 접두어를 붙이지 않습니다. `.env.local`과 실제 참가 코드는 커밋하지 않습니다.
+`DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`에 본인 Supabase 프로젝트 값을 넣어야 데이터 기능이 동작합니다. `DATABASE_URL`은 Supabase Postgres **Session pooler** 연결 문자열(포트 5432)을 사용합니다. 모든 값은 서버 전용이며 `NEXT_PUBLIC_` 접두어를 붙이지 않습니다. `.env.local`과 실제 참가 코드는 커밋하지 않습니다.
 
 1. Supabase 무료 프로젝트를 생성하고 SQL Editor에서 `supabase/migrations/202610140001_init.sql`을 실행합니다. `quiz-media` 비공개 Storage 버킷도 생성됩니다.
 2. Supabase Authentication에서 진행자 계정을 만듭니다. 해당 사용자의 UUID를 확인하고 SQL Editor에서 `insert into public.host_users(user_id) values ('사용자-UUID');`를 실행합니다.
