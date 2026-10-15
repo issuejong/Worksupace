@@ -27,12 +27,39 @@ export async function setupState() {
 
 export async function changeSetup(raw: unknown) {
   const input = z.discriminatedUnion("action", [
+    z.object({ action: z.literal("updateTeam"), id: uuid, name: z.string().trim().min(1).max(32) }),
+    z.object({ action: z.literal("deleteTeam"), id: uuid }),
     z.object({ action: z.literal("round"), id: uuid.optional(), title: z.string().trim().min(1).max(80), position: z.number().int().min(0).max(9999) }),
     z.object({ action: z.literal("question"), id: uuid.optional(), ...questionFields.shape }),
     z.object({ action: z.literal("deleteQuestion"), id: uuid }),
     z.object({ action: z.literal("deleteRound"), id: uuid }),
   ]).parse(raw);
   const sql = db();
+  if (input.action === "updateTeam") {
+    return sql.begin(async tx => {
+      // Share the join lock so a simultaneous registration cannot claim this name.
+      await tx`select pg_advisory_xact_lock(20261014, 1)`;
+      const existing = await tx`select id from public.teams where id=${input.id} for update`;
+      if (!existing.length) throw new AppError("팀을 찾지 못했습니다.", 404);
+      const duplicate = await tx`select id from public.teams where lower(name)=lower(${input.name}) and id<>${input.id} limit 1`;
+      if (duplicate.length) throw new AppError("이미 등록된 팀 이름입니다.", 409, "TEAM_NAME_TAKEN");
+      await tx`update public.teams set name=${input.name} where id=${input.id}`;
+      return { id: input.id };
+    });
+  }
+  if (input.action === "deleteTeam") {
+    return sql.begin(async tx => {
+      await tx`select pg_advisory_xact_lock(20261014, 1)`;
+      const existing = await tx`select id from public.teams where id=${input.id} for update`;
+      if (!existing.length) throw new AppError("팀을 찾지 못했습니다.", 404);
+      const active = await tx`select id from public.runs where phase <> 'finished' limit 1`;
+      if (active.length) throw new AppError("진행 중인 게임이 있어 팀을 삭제할 수 없습니다. 게임을 마친 뒤 다시 시도해 주세요.", 409, "RUN_ACTIVE");
+      const used = await tx`select 1 from public.answers where team_id=${input.id} union all select 1 from public.grades where team_id=${input.id} union all select 1 from public.score_entries where team_id=${input.id} limit 1`;
+      if (used.length) throw new AppError("답안이나 점수 기록이 있는 팀은 삭제할 수 없습니다. 연습 기록은 초기화한 뒤 다시 시도해 주세요.", 409, "TEAM_HAS_HISTORY");
+      await tx`delete from public.teams where id=${input.id}`;
+      return { deleted: true };
+    });
+  }
   if (input.action === "round") {
     const rows = input.id
       ? await sql`update public.rounds set title=${input.title},position=${input.position} where id=${input.id} returning id`
@@ -52,10 +79,14 @@ export async function changeSetup(raw: unknown) {
     return { id: rows[0].id };
   }
   if (input.action === "deleteQuestion") {
+    const used = await sql`select 1 from public.run_questions where question_id=${input.id} limit 1`;
+    if (used.length) throw new AppError("진행 기록에 사용된 문제는 삭제할 수 없습니다. 연습 기록은 초기화한 뒤 다시 시도해 주세요.", 409, "QUESTION_HAS_HISTORY");
     const rows = await sql`delete from public.questions where id=${input.id} returning id`;
     if (!rows.length) throw new AppError("문제를 찾지 못했습니다.", 404);
     return { deleted: true };
   }
+  const questions = await sql`select 1 from public.questions where round_id=${input.id} limit 1`;
+  if (questions.length) throw new AppError("라운드의 문제를 먼저 삭제하거나 다른 라운드로 옮겨 주세요.", 409, "ROUND_HAS_QUESTIONS");
   const rows = await sql`delete from public.rounds where id=${input.id} returning id`;
   if (!rows.length) throw new AppError("라운드를 찾지 못했습니다.", 404);
   return { deleted: true };

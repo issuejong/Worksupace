@@ -5,6 +5,7 @@ import { POST as joinTeam } from "../app/api/join/route";
 import { hash } from "../lib/server/auth";
 import { db } from "../lib/server/db";
 import { correctGrade, gradeCurrent, startRun, stateFor, submitAnswer, transitionRun } from "../lib/server/game";
+import { changeSetup, setupState } from "../lib/server/setup";
 
 const testUrl = process.env.TEST_DATABASE_URL;
 if (testUrl) process.env.DATABASE_URL = testUrl;
@@ -97,5 +98,38 @@ suite("live game against isolated PostgreSQL", () => {
     expect((await stateFor("host")).teams.find(team => team.id === teamA)?.score).toBe(100);
     const finished = await transitionRun({ action: "finish", version: voided.version }, actor);
     expect(finished.phase).toBe("finished");
+  });
+  it("updates setup data and protects played teams and questions from deletion", async () => {
+    const renamed = "아코팀 수정";
+    await changeSetup({ action: "updateTeam", id: teamA, name: renamed });
+    expect((await stateFor("screen")).teams.find(team => team.id === teamA)?.name).toBe(renamed);
+    await expect(changeSetup({ action: "updateTeam", id: teamB, name: renamed })).rejects.toMatchObject({ code: "TEAM_NAME_TAKEN" });
+    await expect(changeSetup({ action: "deleteTeam", id: teamA })).rejects.toMatchObject({ code: "TEAM_HAS_HISTORY" });
+
+    const join = await joinTeam(new NextRequest("http://localhost/api/join", {
+      method: "POST", headers: { origin: "http://localhost", "content-type": "application/json", "x-forwarded-for": testIp },
+      body: JSON.stringify({ action: "join", name: "삭제할 팀" }),
+    }));
+    expect(join.status).toBe(200);
+    const spareTeamId = (await join.json()).team.id;
+    await changeSetup({ action: "deleteTeam", id: spareTeamId });
+    expect((await setupState()).teams.some(team => team.id === spareTeamId)).toBe(false);
+
+    const usedQuestion = (await db()`select id from public.questions where round_id=${roundId} and prompt='Q1'`)[0].id;
+    await expect(changeSetup({ action: "deleteQuestion", id: usedQuestion })).rejects.toMatchObject({ code: "QUESTION_HAS_HISTORY" });
+    await expect(changeSetup({ action: "deleteRound", id: roundId })).rejects.toMatchObject({ code: "ROUND_HAS_QUESTIONS" });
+
+    const spareRound = await changeSetup({ action: "round", title: "임시 라운드", position: 2 });
+    if (!("id" in spareRound)) throw new Error("Round creation failed");
+    const spareRoundId = spareRound.id;
+    await changeSetup({ action: "round", id: spareRoundId, title: "수정된 라운드", position: 3 });
+    const spareQuestion = await changeSetup({ action: "question", roundId: spareRoundId, kind: "short", prompt: "임시 문제", correctAnswer: "정답", points: 50, durationSeconds: 30, position: 0 });
+    if (!("id" in spareQuestion)) throw new Error("Question creation failed");
+    const spareQuestionId = spareQuestion.id;
+    await changeSetup({ action: "question", id: spareQuestionId, roundId: spareRoundId, kind: "short", prompt: "수정된 문제", correctAnswer: "정답", points: 80, durationSeconds: 40, position: 0 });
+    expect((await setupState()).questions.find(question => question.id === spareQuestionId)?.prompt).toBe("수정된 문제");
+    await changeSetup({ action: "deleteQuestion", id: spareQuestionId });
+    await changeSetup({ action: "deleteRound", id: spareRoundId });
+    expect((await setupState()).rounds.some(round => round.id === spareRoundId)).toBe(false);
   });
 });
