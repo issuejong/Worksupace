@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { db } from "./db";
-import { hash, newTeamCode } from "./auth";
 import { AppError } from "./errors";
 
 const uuid = z.uuid();
@@ -28,31 +27,12 @@ export async function setupState() {
 
 export async function changeSetup(raw: unknown) {
   const input = z.discriminatedUnion("action", [
-    z.object({ action: z.literal("team"), number: z.number().int().min(1).max(3), name: z.string().trim().min(1).max(32) }),
-    z.object({ action: z.literal("rotateCode"), teamId: uuid }),
     z.object({ action: z.literal("round"), id: uuid.optional(), title: z.string().trim().min(1).max(80), position: z.number().int().min(0).max(9999) }),
     z.object({ action: z.literal("question"), id: uuid.optional(), ...questionFields.shape }),
     z.object({ action: z.literal("deleteQuestion"), id: uuid }),
     z.object({ action: z.literal("deleteRound"), id: uuid }),
   ]).parse(raw);
   const sql = db();
-  if (input.action === "team") {
-    const existing = await sql`select id,number,name from public.teams where number=${input.number}`;
-    if (existing.length) {
-      const rows = await sql`update public.teams set name=${input.name} where number=${input.number} returning id,number,name`;
-      return { team: rows[0], code: null };
-    }
-    const code = newTeamCode();
-    const rows = await sql`insert into public.teams(number,name,code_hash) values (${input.number},${input.name},${hash(code)}) returning id,number,name`;
-    return { team: rows[0], code: code };
-  }
-  if (input.action === "rotateCode") {
-    const code = newTeamCode();
-    const rows = await sql`update public.teams set code_hash=${hash(code)} where id=${input.teamId} returning id,name`;
-    if (!rows.length) throw new AppError("팀을 찾지 못했습니다.", 404);
-    await sql`update public.team_sessions set revoked_at=now() where team_id=${input.teamId} and revoked_at is null`;
-    return { team: rows[0], code };
-  }
   if (input.action === "round") {
     const rows = input.id
       ? await sql`update public.rounds set title=${input.title},position=${input.position} where id=${input.id} returning id`

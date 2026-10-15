@@ -10,10 +10,6 @@ const TEAM = "umc_team_session";
 
 export function hash(value: string): string { return createHash("sha256").update(value).digest("hex"); }
 export function newToken(): string { return randomBytes(32).toString("base64url"); }
-export function newTeamCode(): string {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  return [...randomBytes(12)].map(byte => alphabet[byte % alphabet.length]).join("");
-}
 function supabaseUrl(): string { const value = process.env.SUPABASE_URL; if (!value) throw new Error("SUPABASE_URL이 설정되지 않았습니다."); return value; }
 function supabaseAnon(): string { const value = process.env.SUPABASE_ANON_KEY; if (!value) throw new Error("SUPABASE_ANON_KEY가 설정되지 않았습니다."); return value; }
 export function authClient() { return createClient(supabaseUrl(), supabaseAnon(), { auth: { persistSession: false, autoRefreshToken: false } }); }
