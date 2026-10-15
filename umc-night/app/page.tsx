@@ -6,9 +6,7 @@ export default function HomePage() {
     <div className="home-content">
       <p className="eyebrow">DONGGUK UNIVERSITY · UMC</p>
       <div className="night-mark" aria-hidden="true">✦</div>
-      <h1>UMC<span>NIGHT</span></h1>
-      <p className="home-subtitle">우리의 밤, 우리 팀의 정답</p>
-      <p className="home-description">팀원과 함께 풀고, 함께 빛나는 밤.<br />대표 한 명이 휴대폰으로 답안을 제출해 주세요.</p>
+      <h1>UMC <span>NIGHT</span></h1>
       <div className="home-actions"><Link className="button button-primary" href="/join">팀으로 참가하기 <span aria-hidden="true">↗</span></Link><Link className="button button-outline" href="/screen">현장 화면 보기</Link></div>
       <p className="home-meta">10.30 FRI · 20:00 · 3 TEAMS</p>
     </div>
