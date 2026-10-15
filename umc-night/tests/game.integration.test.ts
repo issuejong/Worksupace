@@ -2,10 +2,12 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { POST as joinTeam } from "../app/api/join/route";
+import { POST as transferTeam } from "../app/api/transfer/route";
 import { hash } from "../lib/server/auth";
 import { db } from "../lib/server/db";
 import { correctGrade, gradeCurrent, startRun, stateFor, submitAnswer, transitionRun } from "../lib/server/game";
 import { changeSetup, setupState } from "../lib/server/setup";
+import { inspectTeamTransfer, issueTeamTransfer } from "../lib/server/transfer";
 
 const testUrl = process.env.TEST_DATABASE_URL;
 if (testUrl) process.env.DATABASE_URL = testUrl;
@@ -14,7 +16,7 @@ const suite = testUrl ? describe : describe.skip;
 suite("live game against isolated PostgreSQL", () => {
   const actor = randomUUID();
   const testIp = "192.0.2.31";
-  let teamA = ""; let teamB = ""; let teamC = ""; let teamD = ""; let roundId = ""; let runId = "";
+  let teamA = ""; let teamB = ""; let teamC = ""; let teamD = ""; let roundId = ""; let secondRoundId = ""; let runId = "";
   beforeAll(async () => {
     const sql = db();
     const existing = await sql`select count(*)::integer as count from public.teams`;
@@ -22,12 +24,15 @@ suite("live game against isolated PostgreSQL", () => {
     roundId = (await sql`insert into public.rounds(title,position) values ('Test round',0) returning id`)[0].id;
     await sql`insert into public.questions(round_id,kind,prompt,options,correct_answer,points,duration_seconds,position) values (${roundId},'choice','Q1',${sql.json(["A","B"])},'A',100,60,0)`;
     await sql`insert into public.questions(round_id,kind,prompt,options,correct_answer,points,duration_seconds,position,practice) values (${roundId},'short','Practice',${sql.json([])},'yes',50,60,1,true)`;
+    secondRoundId = (await sql`insert into public.rounds(title,position) values ('Second round',1) returning id`)[0].id;
+    await sql`insert into public.questions(round_id,kind,prompt,options,correct_answer,points,duration_seconds,position) values (${secondRoundId},'choice','Q3',${sql.json(["C","D"])},'C',100,60,0)`;
   });
   afterAll(async () => {
     if (!testUrl) return;
     const sql = db();
     if (runId) await sql`delete from public.runs where id=${runId}`;
     if (roundId) await sql`delete from public.rounds where id=${roundId}`;
+    if (secondRoundId) await sql`delete from public.rounds where id=${secondRoundId}`;
     await sql`delete from public.join_attempts where key_hash=${hash(testIp)}`;
     if (teamA) await sql`delete from public.teams where id in (${teamA},${teamB},${teamC},${teamD})`;
     await sql.end();
@@ -73,6 +78,8 @@ suite("live game against isolated PostgreSQL", () => {
     const revealed = await transitionRun({ action: "reveal", version: closed.version }, actor);
     const publicState = await stateFor("screen");
     expect(publicState.question).toHaveProperty("correctAnswer", "A");
+    expect(publicState.scoresVisible).toBe(false);
+    expect(publicState.teams.find(team => team.id === teamA)).not.toHaveProperty("earned");
     const graded = await gradeCurrent(actor, revealed.version, {});
     expect(graded.version).toBe(revealed.version + 1);
     const gradedAgain = await gradeCurrent(actor, revealed.version, {});
@@ -80,6 +87,9 @@ suite("live game against isolated PostgreSQL", () => {
     const state = await stateFor("host");
     expect(state.teams.find(team => team.id === teamA)?.score).toBe(100);
     expect(state.teams.find(team => team.id === teamB)?.score).toBe(0);
+    const betweenQuestions = await stateFor("screen");
+    expect(betweenQuestions.roundBreak).toBe(false);
+    expect(betweenQuestions.teams.find(team => team.id === teamA)?.score).toBeNull();
     const rqId = state.question?.id as string;
     await correctGrade(actor, { runQuestionId: rqId, teamId: teamB, correct: true, reason: "판정 정정" });
     expect((await stateFor("host")).teams.find(team => team.id === teamB)?.score).toBe(100);
@@ -94,9 +104,24 @@ suite("live game against isolated PostgreSQL", () => {
     const practiceRevealed = await transitionRun({ action: "reveal", version: practiceClosed.version }, actor);
     const practiceGraded = await gradeCurrent(actor, practiceRevealed.version, { [teamA]: true });
     expect((await stateFor("host")).teams.find(team => team.id === teamA)?.score).toBe(100);
+    const roundResult = await stateFor("screen");
+    expect(roundResult.roundBreak).toBe(true);
+    expect(roundResult.scoresVisible).toBe(true);
+    expect(roundResult.hasNextQuestion).toBe(true);
+    expect(roundResult.teams.find(team => team.id === teamA)?.score).toBe(100);
     const voided = await transitionRun({ action: "void", version: practiceGraded.version }, actor);
     expect((await stateFor("host")).teams.find(team => team.id === teamA)?.score).toBe(100);
-    const finished = await transitionRun({ action: "finish", version: voided.version }, actor);
+    const finalQuestion = await transitionRun({ action: "start", version: voided.version }, actor);
+    const nextRound = await stateFor("screen");
+    expect(nextRound.question?.roundTitle).toBe("Second round");
+    expect(nextRound.scoresVisible).toBe(false);
+    expect(nextRound.teams.find(team => team.id === teamA)?.score).toBeNull();
+    const finalClosed = await transitionRun({ action: "close", version: finalQuestion.version }, actor);
+    const finalRevealed = await transitionRun({ action: "reveal", version: finalClosed.version }, actor);
+    const finalGraded = await gradeCurrent(actor, finalRevealed.version, {});
+    expect((await stateFor("screen")).roundBreak).toBe(true);
+    expect((await stateFor("screen")).hasNextQuestion).toBe(false);
+    const finished = await transitionRun({ action: "finish", version: finalGraded.version }, actor);
     expect(finished.phase).toBe("finished");
   });
   it("updates setup data and protects played teams and questions from deletion", async () => {
@@ -131,5 +156,29 @@ suite("live game against isolated PostgreSQL", () => {
     await changeSetup({ action: "deleteQuestion", id: spareQuestionId });
     await changeSetup({ action: "deleteRound", id: spareRoundId });
     expect((await setupState()).rounds.some(round => round.id === spareRoundId)).toBe(false);
+  });
+  it("moves a team to a replacement device once without losing its score", async () => {
+    const oldSession = (await db()`select token_hash from public.team_sessions where team_id=${teamA} and revoked_at is null`)[0].token_hash;
+    const first = await issueTeamTransfer(teamA);
+    expect((await inspectTeamTransfer(first.token)).team.id).toBe(teamA);
+    const second = await issueTeamTransfer(teamA);
+    await expect(inspectTeamTransfer(first.token)).rejects.toMatchObject({ code: "TRANSFER_EXPIRED" });
+    const response = await transferTeam(new NextRequest("http://localhost/api/transfer", {
+      method: "POST", headers: { origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ action: "redeem", token: second.token }),
+    }));
+    expect(response.status).toBe(200);
+    expect((await response.json()).team.id).toBe(teamA);
+    const newToken = response.headers.get("set-cookie")?.match(/umc_team_session=([^;]+)/)?.[1];
+    expect(newToken).toBeTruthy();
+    const sessions = await db()`select token_hash,revoked_at from public.team_sessions where team_id=${teamA}`;
+    expect(sessions.find(row => row.token_hash === oldSession)?.revoked_at).not.toBeNull();
+    expect(sessions.find(row => row.token_hash === hash(newToken!))?.revoked_at).toBeNull();
+    expect((await stateFor("host")).teams.find(team => team.id === teamA)?.score).toBe(100);
+    await expect(inspectTeamTransfer(second.token)).rejects.toMatchObject({ code: "TRANSFER_EXPIRED" });
+    const expired = await issueTeamTransfer(teamA);
+    await db()`update public.team_transfers set expires_at=now()-interval '1 second' where token_hash=${hash(expired.token)}`;
+    await expect(inspectTeamTransfer(expired.token)).rejects.toMatchObject({ code: "TRANSFER_EXPIRED" });
+    expect((await db()`select count(*)::integer as count from public.team_sessions where team_id=${teamA} and revoked_at is null`)[0].count).toBe(1);
   });
 });

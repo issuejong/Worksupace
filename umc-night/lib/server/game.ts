@@ -13,6 +13,7 @@ export interface Snapshot extends Record<string, string | number | boolean | str
   practice: boolean;
   image_path: string | null;
   reveal_image_path: string | null;
+  round_id: string;
   round_title: string;
 }
 
@@ -24,7 +25,7 @@ function snapshotOf(row: Record<string, unknown>): Snapshot {
     duration_seconds: Number(row.duration_seconds), practice: Boolean(row.practice),
     image_path: row.image_path ? String(row.image_path) : null,
     reveal_image_path: row.reveal_image_path ? String(row.reveal_image_path) : null,
-    round_title: String(row.round_title),
+    round_id: String(row.round_id), round_title: String(row.round_title),
   };
 }
 
@@ -184,12 +185,23 @@ export async function stateFor(view: "screen" | "team" | "host", teamId?: string
   const sql = db();
   const teams = await sql`select id,number,name from public.teams order by number`;
   const run = await currentRun();
-  if (!run) return { phase: "lobby", runId: null, version: 0, teams: teams.map(t => ({ id:t.id, number:t.number, name:t.name, score: 0 })), question: null, serverNow: new Date().toISOString(), ...(view === "team" ? { teamId } : {}) };
+  if (!run) return { phase: "lobby", runId: null, version: 0, teams: teams.map(t => ({ id:t.id, number:t.number, name:t.name, score: view === "host" ? 0 : null })), scoresVisible: view === "host", roundBreak: false, hasNextQuestion: false, question: null, serverNow: new Date().toISOString(), ...(view === "team" ? { teamId } : {}) };
   const scoreRows = await sql`select team_id,coalesce(sum(delta),0)::integer as score from public.score_entries where run_id=${run.id} group by team_id`;
   const scoreMap = new Map(scoreRows.map(row => [row.team_id as string, Number(row.score)]));
-  const publicTeams = teams.map(t => ({ id: t.id, number: t.number, name: t.name, score: scoreMap.get(t.id) ?? 0 }));
   const rq = run.current_run_question_id ? (await sql`select * from public.run_questions where id=${run.current_run_question_id} limit 1`)[0] : null;
   const snapshot = rq?.snapshot as Snapshot | undefined;
+  let roundBreak = false;
+  let hasNextQuestion = false;
+  if (run.phase === "lobby" || run.phase === "graded") {
+    const next = await sql`select q.round_id from public.questions q join public.rounds r on r.id=q.round_id where q.active=true and not exists (select 1 from public.run_questions played where played.run_id=${run.id} and played.question_id=q.id) order by r.position,r.created_at,q.position,q.created_at limit 1`;
+    hasNextQuestion = next.length > 0;
+    if (run.phase === "graded" && rq && snapshot) {
+      const currentRoundId = snapshot.round_id ?? (await sql`select round_id from public.questions where id=${rq.question_id}`)[0]?.round_id;
+      roundBreak = !next.length || next[0].round_id !== currentRoundId;
+    }
+  }
+  const scoresVisible = view === "host" || run.phase === "finished" || roundBreak;
+  const publicTeams = teams.map(t => ({ id: t.id, number: t.number, name: t.name, score: scoresVisible ? scoreMap.get(t.id) ?? 0 : null }));
   const revealed = run.phase === "revealed" || run.phase === "graded" || run.phase === "finished";
   const question = snapshot && rq ? {
     id: rq.id, prompt: snapshot.prompt, kind: snapshot.kind, options: snapshot.options,
@@ -202,10 +214,10 @@ export async function stateFor(view: "screen" | "team" | "host", teamId?: string
   const answerRows = rq ? await sql`select a.team_id,a.value,a.version,g.correct,g.points from public.answers a left join public.grades g on g.run_question_id=a.run_question_id and g.team_id=a.team_id where a.run_question_id=${rq.id}` : [];
   const answerMap = new Map(answerRows.map(row => [row.team_id as string, row]));
   const base = {
-    phase: run.phase as Phase, runId: run.id as string, mode: run.mode as string, version: Number(run.version),
+    phase: run.phase as Phase, runId: run.id as string, mode: run.mode as string, version: Number(run.version), scoresVisible, roundBreak, hasNextQuestion,
     serverNow: new Date().toISOString(), deadlineAt: run.deadline_at as Date | null,
     remainingSeconds: run.remaining_seconds as number | null, question,
-    teams: publicTeams.map(t => ({ ...t, submitted: answerMap.has(t.id), ...(revealed || view === "host" ? { answer: answerMap.get(t.id)?.value ?? null, correct: answerMap.get(t.id)?.correct ?? null, earned: answerMap.get(t.id)?.points ?? 0 } : {}) })),
+    teams: publicTeams.map(t => ({ ...t, submitted: answerMap.has(t.id), ...(view === "host" ? { answer: answerMap.get(t.id)?.value ?? null, correct: answerMap.get(t.id)?.correct ?? null, earned: answerMap.get(t.id)?.points ?? 0 } : {}) })),
   };
   if (view === "team") {
     const own = answerMap.get(teamId ?? "");
