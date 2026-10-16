@@ -3,6 +3,7 @@ import { AppError } from "./errors";
 
 export type Phase = "lobby" | "live" | "paused" | "closed" | "revealed" | "graded" | "finished";
 export type Kind = "short" | "choice" | "ox";
+export type ScoringMode = "all_correct" | "first_correct";
 export interface Snapshot extends Record<string, string | number | boolean | string[] | null> {
   prompt: string;
   kind: Kind;
@@ -11,6 +12,9 @@ export interface Snapshot extends Record<string, string | number | boolean | str
   points: number;
   duration_seconds: number;
   practice: boolean;
+  scoring_mode: ScoringMode;
+  wait_for_all: boolean;
+  required_team_ids: string[];
   image_path: string | null;
   reveal_image_path: string | null;
   round_id: string;
@@ -23,6 +27,8 @@ function snapshotOf(row: Record<string, unknown>): Snapshot {
     options: Array.isArray(row.options) ? row.options as string[] : [],
     correct_answer: String(row.correct_answer), points: Number(row.points),
     duration_seconds: Number(row.duration_seconds), practice: Boolean(row.practice),
+    scoring_mode: (row.scoring_mode as ScoringMode) ?? "all_correct",
+    wait_for_all: Boolean(row.wait_for_all), required_team_ids: [],
     image_path: row.image_path ? String(row.image_path) : null,
     reveal_image_path: row.reveal_image_path ? String(row.reveal_image_path) : null,
     round_id: String(row.round_id), round_title: String(row.round_title),
@@ -60,22 +66,34 @@ export async function transitionRun(input: { action: "start" | "pause" | "resume
       if (!questions.length) throw new AppError("남은 문제가 없습니다. 게임을 종료해 주세요.", 409, "NO_QUESTIONS");
       const question = questions[0];
       const snapshot = snapshotOf(question);
+      if (snapshot.wait_for_all) {
+        const requiredTeams = await tx`select id from public.teams order by number`;
+        if (!requiredTeams.length) throw new AppError("전원 제출 대기 문제는 팀 등록 후 시작해 주세요.", 409, "NO_TEAMS");
+        snapshot.required_team_ids = requiredTeams.map(team => String(team.id));
+      }
       const runQuestions = await tx`insert into public.run_questions (run_id,question_id,snapshot) values (${run.id},${question.id},${tx.json(snapshot)}) returning id`;
-      const updated = await tx`update public.runs set phase='live', current_run_question_id=${runQuestions[0].id}, deadline_at=clock_timestamp()+make_interval(secs=>${snapshot.duration_seconds}), remaining_seconds=null, version=version+1 where id=${run.id} returning version`;
+      const updated = await tx`update public.runs set phase='live', current_run_question_id=${runQuestions[0].id}, deadline_at=case when ${snapshot.wait_for_all} then null else clock_timestamp()+make_interval(secs=>${snapshot.duration_seconds}) end, remaining_seconds=null, version=version+1 where id=${run.id} returning version`;
       return { phase: "live", version: updated[0].version };
     }
     if (input.action === "pause") {
       if (phase !== "live") throw new AppError("답변 진행 중에만 일시정지할 수 있습니다.", 409);
-      const updated = await tx`update public.runs set phase='paused',remaining_seconds=greatest(0,ceil(extract(epoch from (deadline_at-clock_timestamp())))::integer),deadline_at=null,version=version+1 where id=${run.id} returning version`;
+      const updated = await tx`update public.runs set phase='paused',remaining_seconds=case when deadline_at is null then null else greatest(0,ceil(extract(epoch from (deadline_at-clock_timestamp())))::integer) end,deadline_at=null,version=version+1 where id=${run.id} returning version`;
       return { phase: "paused", version: updated[0].version };
     }
     if (input.action === "resume") {
       if (phase !== "paused") throw new AppError("일시정지 상태가 아닙니다.", 409);
-      const updated = await tx`update public.runs set phase='live',deadline_at=clock_timestamp()+make_interval(secs=>remaining_seconds),remaining_seconds=null,version=version+1 where id=${run.id} returning version`;
+      const updated = await tx`update public.runs set phase='live',deadline_at=case when remaining_seconds is null then null else clock_timestamp()+make_interval(secs=>remaining_seconds) end,remaining_seconds=null,version=version+1 where id=${run.id} returning version`;
       return { phase: "live", version: updated[0].version };
     }
     if (input.action === "close") {
       if (phase !== "live" && phase !== "paused") throw new AppError("답변 중인 문제만 마감할 수 있습니다.", 409);
+      const current = await tx`select snapshot from public.run_questions where id=${run.current_run_question_id}`;
+      const snapshot = current[0]?.snapshot as Snapshot | undefined;
+      if (snapshot?.wait_for_all) {
+        const submitted = await tx`select team_id from public.answers where run_question_id=${run.current_run_question_id}`;
+        const submittedIds = new Set(submitted.map(answer => String(answer.team_id)));
+        if (snapshot.required_team_ids.some(id => !submittedIds.has(id))) throw new AppError("시작할 때 등록된 모든 팀이 답안을 제출해야 마감할 수 있습니다.", 409, "WAITING_FOR_TEAMS");
+      }
       const updated = await tx`update public.runs set phase='closed',deadline_at=null,remaining_seconds=0,version=version+1 where id=${run.id} returning version`;
       return { phase: "closed", version: updated[0].version };
     }
@@ -114,21 +132,28 @@ export async function submitAnswer(teamId: string, input: { value: string; reque
     const run = runs[0];
     const duplicate = await tx`select ar.accepted_version,a.value from public.answer_requests ar join public.answers a on a.id=ar.answer_id where ar.id=${input.requestId} limit 1`;
     if (duplicate.length) return { version: duplicate[0].accepted_version, duplicate: true };
-    if (!run || run.phase !== "live" || !run.deadline_at) throw new AppError("답변 시간이 종료되었습니다.", 409, "ANSWER_CLOSED");
-    const clock = await tx`select clock_timestamp() < ${run.deadline_at}::timestamptz as open`;
-    if (!clock[0].open) throw new AppError("답변 시간이 종료되었습니다.", 409, "ANSWER_CLOSED");
+    if (!run || run.phase !== "live") throw new AppError("답변 시간이 종료되었습니다.", 409, "ANSWER_CLOSED");
     const runQuestions = await tx`select snapshot from public.run_questions where id=${run.current_run_question_id} and voided=false limit 1`;
     if (!runQuestions.length) throw new AppError("진행 중인 문제가 없습니다.", 409);
     const snapshot = runQuestions[0].snapshot as Snapshot;
+    if (!snapshot.wait_for_all) {
+      if (!run.deadline_at) throw new AppError("답변 시간이 종료되었습니다.", 409, "ANSWER_CLOSED");
+      const clock = await tx`select clock_timestamp() < ${run.deadline_at}::timestamptz as open`;
+      if (!clock[0].open) throw new AppError("답변 시간이 종료되었습니다.", 409, "ANSWER_CLOSED");
+    }
     const value = input.value.trim();
     if (!value || value.length > 300) throw new AppError("답안을 1~300자로 입력해 주세요.");
     if ((snapshot.kind === "choice" || snapshot.kind === "ox") && !snapshot.options.includes(value)) throw new AppError("보기 중에서 답을 선택해 주세요.");
     const prior = await tx`select * from public.answers where run_question_id=${run.current_run_question_id} and team_id=${teamId} for update`;
     if (!prior.length && input.expectedVersion !== 0) throw new AppError("답안 상태가 바뀌었습니다. 화면을 새로고침해 주세요.", 409, "STALE_ANSWER");
     if (prior.length && prior[0].version !== input.expectedVersion) throw new AppError("다른 요청에서 답안이 수정되었습니다. 새로고침해 주세요.", 409, "STALE_ANSWER");
+    if (prior.length && prior[0].value === value) {
+      await tx`insert into public.answer_requests(id,answer_id,accepted_version) values (${input.requestId},${prior[0].id},${prior[0].version})`;
+      return { version: prior[0].version, duplicate: false };
+    }
     const saved = prior.length
-      ? await tx`update public.answers set value=${value},version=version+1,updated_at=now() where id=${prior[0].id} returning id,version`
-      : await tx`insert into public.answers(run_question_id,team_id,value) values (${run.current_run_question_id},${teamId},${value}) returning id,version`;
+      ? await tx`update public.answers set value=${value},version=version+1,updated_at=clock_timestamp() where id=${prior[0].id} returning id,version`
+      : await tx`insert into public.answers(run_question_id,team_id,value,updated_at) values (${run.current_run_question_id},${teamId},${value},clock_timestamp()) returning id,version`;
     await tx`insert into public.answer_requests(id,answer_id,accepted_version) values (${input.requestId},${saved[0].id},${saved[0].version})`;
     return { version: saved[0].version, duplicate: false };
   });
@@ -146,12 +171,16 @@ export async function gradeCurrent(actorId: string, version: number, verdicts: R
     if (!rq.length || rq[0].voided || rq[0].graded_at) throw new AppError("채점할 수 없는 문제입니다.", 409);
     const snapshot = rq[0].snapshot as Snapshot;
     const teams = await tx`select id from public.teams order by number`;
-    const answers = await tx`select team_id,value from public.answers where run_question_id=${rq[0].id}`;
+    const answers = await tx`select team_id,value from public.answers where run_question_id=${rq[0].id} order by updated_at,team_id`;
     const answerMap = new Map(answers.map(a => [a.team_id as string, a.value as string]));
-    for (const team of teams) {
+    const correctTeams = new Set(teams.filter(team => {
       const answer = answerMap.get(team.id);
-      const correct = Boolean(answer && (snapshot.kind === "short" ? verdicts[team.id] === true : answer === snapshot.correct_answer));
-      const points = correct && !snapshot.practice ? snapshot.points : 0;
+      return Boolean(answer && (snapshot.kind === "short" ? verdicts[team.id] === true : answer === snapshot.correct_answer));
+    }).map(team => String(team.id)));
+    const firstCorrectId = answers.find(answer => correctTeams.has(String(answer.team_id)))?.team_id;
+    for (const team of teams) {
+      const correct = correctTeams.has(String(team.id));
+      const points = correct && !snapshot.practice && (snapshot.scoring_mode !== "first_correct" || team.id === firstCorrectId) ? snapshot.points : 0;
       await tx`insert into public.grades(run_question_id,team_id,correct,points) values (${rq[0].id},${team.id},${correct},${points})`;
       if (points) await tx`insert into public.score_entries(run_id,run_question_id,team_id,delta,reason,actor_id) values (${run.id},${rq[0].id},${team.id},${points},'정답',${actorId})`;
     }
@@ -166,18 +195,24 @@ export async function correctGrade(actorId: string, input: { runQuestionId: stri
     const rows = await tx`select rq.*, r.mode, r.id as run_id from public.run_questions rq join public.runs r on r.id=rq.run_id where rq.id=${input.runQuestionId} for update of rq`;
     const rq = rows[0];
     if (!rq || rq.voided || !rq.graded_at) throw new AppError("채점된 문제를 찾을 수 없습니다.", 404);
-    const grades = await tx`select * from public.grades where run_question_id=${rq.id} and team_id=${input.teamId} for update`;
-    const grade = grades[0];
+    const grades = await tx`select * from public.grades where run_question_id=${rq.id} for update`;
+    const grade = grades.find(row => row.team_id === input.teamId);
     if (!grade) throw new AppError("팀 판정을 찾을 수 없습니다.", 404);
     const snapshot = rq.snapshot as Snapshot;
     const answer = await tx`select value from public.answers where run_question_id=${rq.id} and team_id=${input.teamId}`;
     if (input.correct && !answer.length) throw new AppError("제출한 답안이 없는 팀은 정답 처리할 수 없습니다.");
-    const newPoints = input.correct && !snapshot.practice ? snapshot.points : 0;
-    const delta = newPoints - grade.points;
-    if (!delta && grade.correct === input.correct) return { changed: false };
-    await tx`update public.grades set correct=${input.correct},points=${newPoints},revision=revision+1,updated_at=now() where run_question_id=${rq.id} and team_id=${input.teamId}`;
-    if (delta) await tx`insert into public.score_entries(run_id,run_question_id,team_id,delta,reason,actor_id) values (${rq.run_id},${rq.id},${input.teamId},${delta},${input.reason},${actorId})`;
-    return { changed: true, delta };
+    if (grade.correct === input.correct) return { changed: false };
+    const orderedAnswers = await tx`select team_id from public.answers where run_question_id=${rq.id} order by updated_at,team_id`;
+    const verdictFor = (teamId: string) => teamId === input.teamId ? input.correct : Boolean(grades.find(row => row.team_id === teamId)?.correct);
+    const winner = snapshot.scoring_mode === "first_correct" ? orderedAnswers.find(row => verdictFor(String(row.team_id)))?.team_id : null;
+    for (const row of grades) {
+      const correct = verdictFor(String(row.team_id));
+      const points = correct && !snapshot.practice && (snapshot.scoring_mode !== "first_correct" || row.team_id === winner) ? snapshot.points : 0;
+      const delta = points - Number(row.points);
+      if (delta || row.correct !== correct) await tx`update public.grades set correct=${correct},points=${points},revision=revision+1,updated_at=now() where run_question_id=${rq.id} and team_id=${row.team_id}`;
+      if (delta) await tx`insert into public.score_entries(run_id,run_question_id,team_id,delta,reason,actor_id) values (${rq.run_id},${rq.id},${row.team_id},${delta},${input.reason},${actorId})`;
+    }
+    return { changed: true };
   });
 }
 
@@ -185,7 +220,7 @@ export async function stateFor(view: "screen" | "team" | "host", teamId?: string
   const sql = db();
   const teams = await sql`select id,number,name from public.teams order by number`;
   const run = await currentRun();
-  if (!run) return { phase: "lobby", runId: null, version: 0, teams: teams.map(t => ({ id:t.id, number:t.number, name:t.name, score: view === "host" ? 0 : null })), scoresVisible: view === "host", roundBreak: false, hasNextQuestion: false, question: null, serverNow: new Date().toISOString(), ...(view === "team" ? { teamId } : {}) };
+  if (!run) return { phase: "lobby", runId: null, version: 0, teams: teams.map(t => ({ id:t.id, number:t.number, name:t.name, score: view === "host" ? 0 : null })), scoresVisible: view === "host", roundBreak: false, hasNextQuestion: false, question: null, deadlineAt: null, remainingSeconds: null, requiredTeamIds: [], serverNow: new Date().toISOString(), ...(view === "team" ? { teamId } : {}) };
   const scoreRows = await sql`select team_id,coalesce(sum(delta),0)::integer as score from public.score_entries where run_id=${run.id} group by team_id`;
   const scoreMap = new Map(scoreRows.map(row => [row.team_id as string, Number(row.score)]));
   const rq = run.current_run_question_id ? (await sql`select * from public.run_questions where id=${run.current_run_question_id} limit 1`)[0] : null;
@@ -206,6 +241,7 @@ export async function stateFor(view: "screen" | "team" | "host", teamId?: string
   const question = snapshot && rq ? {
     id: rq.id, prompt: snapshot.prompt, kind: snapshot.kind, options: snapshot.options,
     points: snapshot.points, durationSeconds: snapshot.duration_seconds, practice: snapshot.practice,
+    scoringMode: snapshot.scoring_mode ?? "all_correct", waitForAll: snapshot.wait_for_all ?? false,
     roundTitle: snapshot.round_title,
     imageUrl: snapshot.image_path ? `/api/media/${snapshot.image_path}` : null,
     revealImageUrl: revealed && snapshot.reveal_image_path ? `/api/media/${snapshot.reveal_image_path}` : null,
@@ -217,7 +253,8 @@ export async function stateFor(view: "screen" | "team" | "host", teamId?: string
     phase: run.phase as Phase, runId: run.id as string, mode: run.mode as string, version: Number(run.version), scoresVisible, roundBreak, hasNextQuestion,
     serverNow: new Date().toISOString(), deadlineAt: run.deadline_at as Date | null,
     remainingSeconds: run.remaining_seconds as number | null, question,
-    teams: publicTeams.map(t => ({ ...t, submitted: answerMap.has(t.id), ...(view === "host" ? { answer: answerMap.get(t.id)?.value ?? null, correct: answerMap.get(t.id)?.correct ?? null, earned: answerMap.get(t.id)?.points ?? 0 } : {}) })),
+    requiredTeamIds: snapshot?.required_team_ids ?? [],
+    teams: publicTeams.map(t => ({ ...t, submitted: answerMap.has(t.id), required: snapshot?.wait_for_all ? snapshot.required_team_ids.includes(t.id) : false, ...(view === "host" ? { answer: answerMap.get(t.id)?.value ?? null, correct: answerMap.get(t.id)?.correct ?? null, earned: answerMap.get(t.id)?.points ?? 0 } : {}) })),
   };
   if (view === "team") {
     const own = answerMap.get(teamId ?? "");
