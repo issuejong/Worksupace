@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     const run = runs[0];
     const [teams, questions, answers, grades, scoreEntries] = await Promise.all([
       sql`select id,number,name from public.teams order by number`,
-      sql`select id,question_id,snapshot,voided,graded_at,started_at from public.run_questions where run_id=${run.id} order by started_at`,
+      sql`select id,question_id,snapshot,selected_answer,voided,graded_at,started_at from public.run_questions where run_id=${run.id} order by started_at`,
       sql`select a.run_question_id,a.team_id,a.value,a.updated_at from public.answers a join public.run_questions rq on rq.id=a.run_question_id where rq.run_id=${run.id}`,
       sql`select g.* from public.grades g join public.run_questions rq on rq.id=g.run_question_id where rq.run_id=${run.id}`,
       sql`select team_id,run_question_id,delta,reason,created_at from public.score_entries where run_id=${run.id} order by created_at`,

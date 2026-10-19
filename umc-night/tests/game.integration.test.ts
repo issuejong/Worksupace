@@ -16,7 +16,7 @@ const suite = testUrl ? describe : describe.skip;
 suite("live game against isolated PostgreSQL", () => {
   const actor = randomUUID();
   const testIp = "192.0.2.31";
-  let teamA = ""; let teamB = ""; let teamC = ""; let teamD = ""; let roundId = ""; let secondRoundId = ""; let ruleRoundId = ""; let runId = ""; let ruleRunId = "";
+  let teamA = ""; let teamB = ""; let teamC = ""; let teamD = ""; let roundId = ""; let secondRoundId = ""; let ruleRoundId = ""; let liveRoundId = ""; let runId = ""; let ruleRunId = ""; let liveRunId = "";
   beforeAll(async () => {
     const sql = db();
     const existing = await sql`select count(*)::integer as count from public.teams`;
@@ -32,9 +32,11 @@ suite("live game against isolated PostgreSQL", () => {
     const sql = db();
     if (runId) await sql`delete from public.runs where id=${runId}`;
     if (ruleRunId) await sql`delete from public.runs where id=${ruleRunId}`;
+    if (liveRunId) await sql`delete from public.runs where id=${liveRunId}`;
     if (roundId) await sql`delete from public.rounds where id=${roundId}`;
     if (secondRoundId) await sql`delete from public.rounds where id=${secondRoundId}`;
     if (ruleRoundId) await sql`delete from public.rounds where id=${ruleRoundId}`;
+    if (liveRoundId) await sql`delete from public.rounds where id=${liveRoundId}`;
     await sql`delete from public.join_attempts where key_hash=${hash(testIp)}`;
     if (teamA) await sql`delete from public.teams where id in (${teamA},${teamB},${teamC},${teamD})`;
     await sql.end();
@@ -219,6 +221,32 @@ suite("live game against isolated PostgreSQL", () => {
     await correctGrade(actor, { runQuestionId: publicState.question!.id, teamId: teamB, correct: true, reason: "판정 정정" });
     expect((await scores()).get(teamB)).toBe(200);
     expect((await scores()).get(teamC)).toBe(0);
+    await transitionRun({ action: "finish", version: graded.version }, actor);
+  });
+  it("lets the host choose a live answer only when revealing a closed question", async () => {
+    const sql = db();
+    liveRoundId = (await sql`insert into public.rounds(title,position) values ('Balance round',-2) returning id`)[0].id;
+    const createdQuestion = await changeSetup({ action: "question", roundId: liveRoundId, kind: "choice", prompt: "산 또는 바다?", options: ["산", "바다"], correctAnswer: "", answerMode: "live", points: 150, durationSeconds: 60, position: 0 });
+    if (!("id" in createdQuestion)) throw new Error("Live-answer question creation failed");
+    const storedQuestion = (await setupState()).questions.find(question => question.id === createdQuestion.id);
+    expect(storedQuestion?.answer_mode).toBe("live");
+    expect(storedQuestion?.correct_answer).toBeNull();
+    const createdRun = await startRun("rehearsal"); liveRunId = createdRun.runId;
+    const live = await transitionRun({ action: "start", version: createdRun.version }, actor);
+    expect((await stateFor("screen")).question).not.toHaveProperty("correctAnswer");
+    expect((await stateFor("host")).question).not.toHaveProperty("correctAnswer");
+    await submitAnswer(teamA, { value: "산", requestId: randomUUID(), expectedVersion: 0 });
+    await submitAnswer(teamB, { value: "바다", requestId: randomUUID(), expectedVersion: 0 });
+    const closed = await transitionRun({ action: "close", version: live.version }, actor);
+    await expect(transitionRun({ action: "reveal", version: closed.version }, actor)).rejects.toMatchObject({ code: "ANSWER_REQUIRED" });
+    await expect(transitionRun({ action: "reveal", version: closed.version, answer: "없음" }, actor)).rejects.toMatchObject({ code: "ANSWER_INVALID" });
+    expect((await stateFor("screen")).question).not.toHaveProperty("correctAnswer");
+    const revealed = await transitionRun({ action: "reveal", version: closed.version, answer: "바다" }, actor);
+    expect((await stateFor("screen")).question).toHaveProperty("correctAnswer", "바다");
+    const graded = await gradeCurrent(actor, revealed.version, {});
+    const host = await stateFor("host");
+    expect(host.teams.find(team => team.id === teamA)?.score).toBe(0);
+    expect(host.teams.find(team => team.id === teamB)?.score).toBe(150);
     await transitionRun({ action: "finish", version: graded.version }, actor);
   });
 });

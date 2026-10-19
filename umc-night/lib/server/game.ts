@@ -4,11 +4,13 @@ import { AppError } from "./errors";
 export type Phase = "lobby" | "live" | "paused" | "closed" | "revealed" | "graded" | "finished";
 export type Kind = "short" | "choice" | "ox";
 export type ScoringMode = "all_correct" | "first_correct";
+export type AnswerMode = "fixed" | "live";
 export interface Snapshot extends Record<string, string | number | boolean | string[] | null> {
   prompt: string;
   kind: Kind;
   options: string[];
-  correct_answer: string;
+  correct_answer: string | null;
+  answer_mode: AnswerMode;
   points: number;
   duration_seconds: number;
   practice: boolean;
@@ -25,7 +27,8 @@ function snapshotOf(row: Record<string, unknown>): Snapshot {
   return {
     prompt: String(row.prompt), kind: row.kind as Kind,
     options: Array.isArray(row.options) ? row.options as string[] : [],
-    correct_answer: String(row.correct_answer), points: Number(row.points),
+    correct_answer: row.correct_answer == null ? null : String(row.correct_answer),
+    answer_mode: (row.answer_mode as AnswerMode) ?? "fixed", points: Number(row.points),
     duration_seconds: Number(row.duration_seconds), practice: Boolean(row.practice),
     scoring_mode: (row.scoring_mode as ScoringMode) ?? "all_correct",
     wait_for_all: Boolean(row.wait_for_all), required_team_ids: [],
@@ -49,7 +52,7 @@ export async function startRun(mode: "rehearsal" | "event") {
   });
 }
 
-export async function transitionRun(input: { action: "start" | "pause" | "resume" | "close" | "reveal" | "void" | "finish"; version: number; }, actorId: string) {
+export async function transitionRun(input: { action: "start" | "pause" | "resume" | "close" | "reveal" | "void" | "finish"; version: number; answer?: string; }, actorId: string) {
   return db().begin(async tx => {
     const rows = await tx`select * from public.runs where phase <> 'finished' order by created_at desc limit 1 for update`;
     if (!rows.length) throw new AppError("진행할 게임을 먼저 생성해 주세요.", 409, "NO_RUN");
@@ -99,6 +102,15 @@ export async function transitionRun(input: { action: "start" | "pause" | "resume
     }
     if (input.action === "reveal") {
       if (phase !== "closed") throw new AppError("답변 마감 후 정답을 공개할 수 있습니다.", 409);
+      const current = await tx`select snapshot from public.run_questions where id=${run.current_run_question_id} for update`;
+      if (!current.length) throw new AppError("진행 중인 문제를 찾지 못했습니다.", 409);
+      const snapshot = current[0].snapshot as Snapshot;
+      if (snapshot.answer_mode === "live") {
+        const answer = input.answer?.trim() ?? "";
+        if (!answer || answer.length > 120) throw new AppError("현장 정답을 1~120자로 입력해 주세요.", 400, "ANSWER_REQUIRED");
+        if (snapshot.kind !== "short" && !snapshot.options.includes(answer)) throw new AppError("보기 중에서 현장 정답을 선택해 주세요.", 400, "ANSWER_INVALID");
+        await tx`update public.run_questions set selected_answer=${answer} where id=${run.current_run_question_id}`;
+      }
       const updated = await tx`update public.runs set phase='revealed',version=version+1 where id=${run.id} returning version`;
       return { phase: "revealed", version: updated[0].version };
     }
@@ -170,12 +182,14 @@ export async function gradeCurrent(actorId: string, version: number, verdicts: R
     const rq = await tx`select * from public.run_questions where id=${run.current_run_question_id} for update`;
     if (!rq.length || rq[0].voided || rq[0].graded_at) throw new AppError("채점할 수 없는 문제입니다.", 409);
     const snapshot = rq[0].snapshot as Snapshot;
+    const correctAnswer = snapshot.answer_mode === "live" ? rq[0].selected_answer as string | null : snapshot.correct_answer;
+    if (!correctAnswer) throw new AppError("정답을 확정한 뒤 채점해 주세요.", 409, "ANSWER_REQUIRED");
     const teams = await tx`select id from public.teams order by number`;
     const answers = await tx`select team_id,value from public.answers where run_question_id=${rq[0].id} order by updated_at,team_id`;
     const answerMap = new Map(answers.map(a => [a.team_id as string, a.value as string]));
     const correctTeams = new Set(teams.filter(team => {
       const answer = answerMap.get(team.id);
-      return Boolean(answer && (snapshot.kind === "short" ? verdicts[team.id] === true : answer === snapshot.correct_answer));
+      return Boolean(answer && (snapshot.kind === "short" ? verdicts[team.id] === true : answer === correctAnswer));
     }).map(team => String(team.id)));
     const firstCorrectId = answers.find(answer => correctTeams.has(String(answer.team_id)))?.team_id;
     for (const team of teams) {
@@ -238,14 +252,16 @@ export async function stateFor(view: "screen" | "team" | "host", teamId?: string
   const scoresVisible = view === "host" || run.phase === "finished" || roundBreak;
   const publicTeams = teams.map(t => ({ id: t.id, number: t.number, name: t.name, score: scoresVisible ? scoreMap.get(t.id) ?? 0 : null }));
   const revealed = run.phase === "revealed" || run.phase === "graded" || run.phase === "finished";
+  const correctAnswer = snapshot?.answer_mode === "live" ? rq?.selected_answer as string | null : snapshot?.correct_answer;
   const question = snapshot && rq ? {
     id: rq.id, prompt: snapshot.prompt, kind: snapshot.kind, options: snapshot.options,
     points: snapshot.points, durationSeconds: snapshot.duration_seconds, practice: snapshot.practice,
+    answerMode: snapshot.answer_mode ?? "fixed",
     scoringMode: snapshot.scoring_mode ?? "all_correct", waitForAll: snapshot.wait_for_all ?? false,
     roundTitle: snapshot.round_title,
     imageUrl: snapshot.image_path ? `/api/media/${snapshot.image_path}` : null,
     revealImageUrl: revealed && snapshot.reveal_image_path ? `/api/media/${snapshot.reveal_image_path}` : null,
-    ...(revealed || view === "host" ? { correctAnswer: snapshot.correct_answer } : {}),
+    ...((revealed || view === "host") && correctAnswer != null ? { correctAnswer } : {}),
   } : null;
   const answerRows = rq ? await sql`select a.team_id,a.value,a.version,g.correct,g.points from public.answers a left join public.grades g on g.run_question_id=a.run_question_id and g.team_id=a.team_id where a.run_question_id=${rq.id}` : [];
   const answerMap = new Map(answerRows.map(row => [row.team_id as string, row]));
