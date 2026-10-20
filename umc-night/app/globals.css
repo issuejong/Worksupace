@@ -9,3 +9,22 @@
 .home-aco{position:absolute;right:2vw;bottom:0;width:clamp(120px,18vw,250px);height:auto;filter:drop-shadow(0 12px 22px #0009);pointer-events:none}.join-aco{display:block;width:160px;max-width:45vw;margin:16px auto}.screen .logo-aco{width:clamp(100px,12vw,170px);height:auto;filter:drop-shadow(0 6px 15px #0008)}@media(max-width:760px){.home-aco{width:100px;right:-20px;bottom:25px;opacity:.7}}
 .screen-lobby .screen-stage{margin:clamp(20px,4vh,44px) auto 55px}.screen-lobby-hero{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:clamp(28px,5vw,80px);max-width:1100px;margin:0 auto}.screen-lobby-intro{text-align:left}.screen-lobby-intro .eyebrow{margin-bottom:18px}.screen-lobby-intro h1{margin:0;white-space:nowrap}.screen-lobby-intro .logo-aco{display:block;margin:18px 0 0}.screen-lobby-qr{width:clamp(220px,22vw,300px);aspect-ratio:1;padding:9px;border:1px solid #ffffff66;border-radius:24px;background:#fffdf9;box-shadow:0 20px 50px #0007}.screen-lobby-qr img{display:block;width:100%;height:100%;border-radius:12px}.screen-lobby .screen-scoreboard{margin-top:24px}.screen-scoreboard{padding-bottom:35px}.screen-footer{pointer-events:none}@media(max-width:760px){.screen-lobby-hero{grid-template-columns:1fr;gap:22px}.screen-lobby-intro{text-align:center}.screen-lobby-intro h1{white-space:normal}.screen-lobby-intro .logo-aco{margin:12px auto 0}.screen-lobby-qr{width:min(60vw,240px);margin:0 auto}}
 .transfer-qr{margin-top:16px;text-align:center}.transfer-qr img{display:block;width:256px;max-width:100%;margin:0 auto 12px;border-radius:16px}.transfer-qr p:last-child{word-break:break-all}.screen-round-result{margin:clamp(35px,7vh,85px) auto 0}.screen-round-result h1{margin:12px 0 24px}.screen-round-result .result-answer{font-size:clamp(1.3rem,2.5vw,2rem)}
+
+/* Quiz choices: readable from the venue screen and easy to tap on a phone. */
+.screen-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(12px,1.5vw,22px);width:min(100%,1200px);margin:clamp(14px,2vh,24px) auto clamp(16px,2vh,24px)}
+.screen-option{min-width:0;min-height:clamp(86px,11vh,130px);display:flex;align-items:center;gap:clamp(16px,2vw,28px);padding:clamp(16px,2vw,25px);text-align:left;color:#281b15;background:linear-gradient(140deg,#fffdf7,#f6eadb);border:2px solid #fff2da;border-radius:22px;box-shadow:0 16px 36px #0003,inset 5px 0 0 var(--orange)}
+.screen-option-number{flex:none;width:clamp(54px,5.2vw,76px);height:clamp(54px,5.2vw,76px);display:grid;place-items:center;border-radius:16px;background:var(--orange);color:white;font-size:clamp(1.4rem,2.2vw,2.4rem);font-weight:1000;font-variant-numeric:tabular-nums}
+.screen-option-text{min-width:0;font-size:clamp(1.5rem,2.8vw,3.2rem);line-height:1.2;letter-spacing:-.04em;font-weight:900;overflow-wrap:anywhere}
+.screen-stage:has(.screen-options) .question-text{margin:clamp(16px,2.5vh,28px) auto}
+.screen .screen-question-image{max-height:24vh;margin:12px auto}
+.screen-stage:has(.screen-question-image) .screen-option{min-height:clamp(72px,8vh,110px)}
+
+.option-grid{gap:12px}
+.option{min-width:0;min-height:86px;display:flex;align-items:center;gap:15px;padding:15px 18px;border:2px solid #e4d2c0;border-radius:18px;background:#fffefa;box-shadow:0 5px 16px #4b2c140d;color:var(--ink);cursor:pointer;transition:border-color .15s,background-color .15s,box-shadow .15s,transform .15s}
+.option:hover{border-color:#de9b78;background:#fff8f1;transform:translateY(-2px)}
+.option:focus-visible{outline:3px solid var(--deep);outline-offset:3px}
+.option.selected{border-color:var(--orange);background:#fff0e6;box-shadow:0 0 0 3px #ee6b3529,0 8px 20px #4b2c1414}
+.option-number{flex:none;width:47px;height:47px;display:grid;place-items:center;border-radius:13px;background:#f5e7d8;color:#974323;font-size:1.1rem;font-weight:1000;font-variant-numeric:tabular-nums}
+.option.selected .option-number{background:var(--orange);color:white}
+.option-text{min-width:0;font-size:clamp(1.05rem,2.5vw,1.25rem);line-height:1.35;letter-spacing:-.025em;overflow-wrap:anywhere}
+@media(max-width:760px){.option-grid,.screen-options{grid-template-columns:1fr}.screen-option{min-height:78px;padding:14px 18px}.screen-option-number{width:50px;height:50px;font-size:1.35rem}.screen-option-text{font-size:clamp(1.35rem,5vw,2rem)}.screen-stage:has(.screen-options){padding-bottom:50px}}
