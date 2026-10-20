@@ -11,7 +11,6 @@ export interface Snapshot extends Record<string, string | number | boolean | str
   options: string[];
   correct_answer: string | null;
   answer_mode: AnswerMode;
-  points: number;
   duration_seconds: number;
   practice: boolean;
   scoring_mode: ScoringMode;
@@ -28,7 +27,7 @@ function snapshotOf(row: Record<string, unknown>): Snapshot {
     prompt: String(row.prompt), kind: row.kind as Kind,
     options: Array.isArray(row.options) ? row.options as string[] : [],
     correct_answer: row.correct_answer == null ? null : String(row.correct_answer),
-    answer_mode: (row.answer_mode as AnswerMode) ?? "fixed", points: Number(row.points),
+    answer_mode: (row.answer_mode as AnswerMode) ?? "fixed",
     duration_seconds: Number(row.duration_seconds), practice: Boolean(row.practice),
     scoring_mode: (row.scoring_mode as ScoringMode) ?? "all_correct",
     wait_for_all: Boolean(row.wait_for_all), required_team_ids: [],
@@ -194,7 +193,7 @@ export async function gradeCurrent(actorId: string, version: number, verdicts: R
     const firstCorrectId = answers.find(answer => correctTeams.has(String(answer.team_id)))?.team_id;
     for (const team of teams) {
       const correct = correctTeams.has(String(team.id));
-      const points = correct && !snapshot.practice && (snapshot.scoring_mode !== "first_correct" || team.id === firstCorrectId) ? snapshot.points : 0;
+      const points = correct && !snapshot.practice && (snapshot.scoring_mode !== "first_correct" || team.id === firstCorrectId) ? 1 : 0;
       await tx`insert into public.grades(run_question_id,team_id,correct,points) values (${rq[0].id},${team.id},${correct},${points})`;
       if (points) await tx`insert into public.score_entries(run_id,run_question_id,team_id,delta,reason,actor_id) values (${run.id},${rq[0].id},${team.id},${points},'정답',${actorId})`;
     }
@@ -221,7 +220,7 @@ export async function correctGrade(actorId: string, input: { runQuestionId: stri
     const winner = snapshot.scoring_mode === "first_correct" ? orderedAnswers.find(row => verdictFor(String(row.team_id)))?.team_id : null;
     for (const row of grades) {
       const correct = verdictFor(String(row.team_id));
-      const points = correct && !snapshot.practice && (snapshot.scoring_mode !== "first_correct" || row.team_id === winner) ? snapshot.points : 0;
+      const points = correct && !snapshot.practice && (snapshot.scoring_mode !== "first_correct" || row.team_id === winner) ? 1 : 0;
       const delta = points - Number(row.points);
       if (delta || row.correct !== correct) await tx`update public.grades set correct=${correct},points=${points},revision=revision+1,updated_at=now() where run_question_id=${rq.id} and team_id=${row.team_id}`;
       if (delta) await tx`insert into public.score_entries(run_id,run_question_id,team_id,delta,reason,actor_id) values (${rq.run_id},${rq.id},${row.team_id},${delta},${input.reason},${actorId})`;
@@ -255,7 +254,7 @@ export async function stateFor(view: "screen" | "team" | "host", teamId?: string
   const correctAnswer = snapshot?.answer_mode === "live" ? rq?.selected_answer as string | null : snapshot?.correct_answer;
   const question = snapshot && rq ? {
     id: rq.id, prompt: snapshot.prompt, kind: snapshot.kind, options: snapshot.options,
-    points: snapshot.points, durationSeconds: snapshot.duration_seconds, practice: snapshot.practice,
+    durationSeconds: snapshot.duration_seconds, practice: snapshot.practice,
     answerMode: snapshot.answer_mode ?? "fixed",
     scoringMode: snapshot.scoring_mode ?? "all_correct", waitForAll: snapshot.wait_for_all ?? false,
     roundTitle: snapshot.round_title,

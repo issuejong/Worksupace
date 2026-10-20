@@ -9,7 +9,6 @@ const questionFields = z.object({
   options: z.array(z.string().trim().min(1).max(120)).max(6).default([]),
   correctAnswer: z.string().trim().max(120).default(""),
   answerMode: z.enum(["fixed", "live"]).default("fixed"),
-  points: z.number().int().min(1).max(1000),
   durationSeconds: z.number().int().min(5).max(300),
   scoringMode: z.enum(["all_correct", "first_correct"]).default("all_correct"),
   waitForAll: z.boolean().default(false),
@@ -23,7 +22,7 @@ export async function setupState() {
   const [teams, rounds, questions] = await Promise.all([
     sql`select id,number,name from public.teams order by number`,
     sql`select id,title,position from public.rounds order by position,created_at`,
-    sql`select id,round_id,kind,prompt,options,correct_answer,answer_mode,points,duration_seconds,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path from public.questions order by position,created_at`,
+    sql`select id,round_id,kind,prompt,options,correct_answer,answer_mode,duration_seconds,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path from public.questions order by position,created_at`,
   ]);
   return { teams, rounds, questions };
 }
@@ -71,15 +70,15 @@ export async function changeSetup(raw: unknown) {
     return { id: rows[0].id };
   }
   if (input.action === "question") {
-    const { id, roundId, kind, prompt, options, correctAnswer, answerMode, points, durationSeconds, scoringMode, waitForAll, position, practice, active, imageId, revealImageId } = input;
+    const { id, roundId, kind, prompt, options, correctAnswer, answerMode, durationSeconds, scoringMode, waitForAll, position, practice, active, imageId, revealImageId } = input;
     const effectiveOptions = kind === "ox" ? ["O", "X"] : kind === "short" ? [] : options;
     if (kind === "choice" && effectiveOptions.length < 2) throw new AppError("객관식은 보기가 2개 이상 필요합니다.");
     if (answerMode === "fixed" && !correctAnswer) throw new AppError("미리 정답을 정하는 문제는 정답을 입력해 주세요.");
     if (answerMode === "fixed" && kind !== "short" && !effectiveOptions.includes(correctAnswer)) throw new AppError("정답이 보기에 있어야 합니다.");
     const storedAnswer = answerMode === "live" ? null : correctAnswer;
     const rows = id
-      ? await sql`update public.questions set round_id=${roundId},kind=${kind},prompt=${prompt},options=${sql.json(effectiveOptions)},correct_answer=${storedAnswer},answer_mode=${answerMode},points=${points},duration_seconds=${durationSeconds},scoring_mode=${scoringMode},wait_for_all=${waitForAll},position=${position},practice=${practice},active=${active},image_path=${imageId},reveal_image_path=${revealImageId} where id=${id} returning id`
-      : await sql`insert into public.questions(round_id,kind,prompt,options,correct_answer,answer_mode,points,duration_seconds,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path) values (${roundId},${kind},${prompt},${sql.json(effectiveOptions)},${storedAnswer},${answerMode},${points},${durationSeconds},${scoringMode},${waitForAll},${position},${practice},${active},${imageId},${revealImageId}) returning id`;
+      ? await sql`update public.questions set round_id=${roundId},kind=${kind},prompt=${prompt},options=${sql.json(effectiveOptions)},correct_answer=${storedAnswer},answer_mode=${answerMode},points=1,duration_seconds=${durationSeconds},scoring_mode=${scoringMode},wait_for_all=${waitForAll},position=${position},practice=${practice},active=${active},image_path=${imageId},reveal_image_path=${revealImageId} where id=${id} returning id`
+      : await sql`insert into public.questions(round_id,kind,prompt,options,correct_answer,answer_mode,duration_seconds,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path) values (${roundId},${kind},${prompt},${sql.json(effectiveOptions)},${storedAnswer},${answerMode},${durationSeconds},${scoringMode},${waitForAll},${position},${practice},${active},${imageId},${revealImageId}) returning id`;
     if (!rows.length) throw new AppError("문제를 찾지 못했습니다.", 404);
     return { id: rows[0].id };
   }
