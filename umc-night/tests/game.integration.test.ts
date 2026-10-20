@@ -79,9 +79,14 @@ suite("live game against isolated PostgreSQL", () => {
     await db()`update public.runs set deadline_at=clock_timestamp()-interval '1 second' where id=${runId}`;
     await expect(submitAnswer(teamC, { value: "A", requestId: randomUUID(), expectedVersion: 0 })).rejects.toMatchObject({ code: "ANSWER_CLOSED" });
     const closed = await transitionRun({ action: "close", version: live.version }, actor);
+    expect((await stateFor("screen")).teams.find(team => team.id === teamA)).not.toHaveProperty("answer");
     const revealed = await transitionRun({ action: "reveal", version: closed.version }, actor);
     const publicState = await stateFor("screen");
     expect(publicState.question).toHaveProperty("correctAnswer", "A");
+    expect(publicState.teams.find(team => team.id === teamA)).toHaveProperty("answer", "A");
+    expect(publicState.teams.find(team => team.id === teamB)).toHaveProperty("answer", "B");
+    expect(publicState.teams.find(team => team.id === teamC)).toHaveProperty("answer", null);
+    expect((await stateFor("team", teamA)).teams.find(team => team.id === teamB)).not.toHaveProperty("answer");
     expect(publicState.scoresVisible).toBe(false);
     expect(publicState.teams.find(team => team.id === teamA)).not.toHaveProperty("earned");
     const graded = await gradeCurrent(actor, revealed.version, {});
@@ -94,6 +99,7 @@ suite("live game against isolated PostgreSQL", () => {
     const betweenQuestions = await stateFor("screen");
     expect(betweenQuestions.roundBreak).toBe(false);
     expect(betweenQuestions.teams.find(team => team.id === teamA)?.score).toBeNull();
+    expect(betweenQuestions.teams.find(team => team.id === teamA)).toHaveProperty("answer", "A");
     const rqId = state.question?.id as string;
     await correctGrade(actor, { runQuestionId: rqId, teamId: teamB, correct: true, reason: "판정 정정" });
     expect((await stateFor("host")).teams.find(team => team.id === teamB)?.score).toBe(1);
@@ -115,6 +121,7 @@ suite("live game against isolated PostgreSQL", () => {
     expect(roundResult.teams.find(team => team.id === teamA)?.score).toBe(1);
     const voided = await transitionRun({ action: "void", version: practiceGraded.version }, actor);
     expect((await stateFor("host")).teams.find(team => team.id === teamA)?.score).toBe(1);
+    expect((await stateFor("screen")).teams.find(team => team.id === teamA)).not.toHaveProperty("answer");
     const finalQuestion = await transitionRun({ action: "start", version: voided.version }, actor);
     const nextRound = await stateFor("screen");
     expect(nextRound.question?.roundTitle).toBe("Second round");

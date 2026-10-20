@@ -264,12 +264,14 @@ export async function stateFor(view: "screen" | "team" | "host", teamId?: string
   } : null;
   const answerRows = rq ? await sql`select a.team_id,a.value,a.version,g.correct,g.points from public.answers a left join public.grades g on g.run_question_id=a.run_question_id and g.team_id=a.team_id where a.run_question_id=${rq.id}` : [];
   const answerMap = new Map(answerRows.map(row => [row.team_id as string, row]));
+  const screenAnswersVisible = view === "screen" && !rq?.voided && (run.phase === "revealed" || run.phase === "graded");
   const base = {
     phase: run.phase as Phase, runId: run.id as string, mode: run.mode as string, version: Number(run.version), scoresVisible, roundBreak, hasNextQuestion,
+    ...(view === "screen" ? { teamAnswersVisible: screenAnswersVisible } : {}),
     serverNow: new Date().toISOString(), deadlineAt: run.deadline_at as Date | null,
     remainingSeconds: run.remaining_seconds as number | null, question,
     requiredTeamIds: snapshot?.required_team_ids ?? [],
-    teams: publicTeams.map(t => ({ ...t, submitted: answerMap.has(t.id), required: snapshot?.wait_for_all ? snapshot.required_team_ids.includes(t.id) : false, ...(view === "host" ? { answer: answerMap.get(t.id)?.value ?? null, correct: answerMap.get(t.id)?.correct ?? null, earned: answerMap.get(t.id)?.points ?? 0 } : {}) })),
+    teams: publicTeams.map(t => ({ ...t, submitted: answerMap.has(t.id), required: snapshot?.wait_for_all ? snapshot.required_team_ids.includes(t.id) : false, ...((view === "host" || screenAnswersVisible) ? { answer: answerMap.get(t.id)?.value ?? null } : {}), ...(view === "host" ? { correct: answerMap.get(t.id)?.correct ?? null, earned: answerMap.get(t.id)?.points ?? 0 } : {}) })),
   };
   if (view === "team") {
     const own = answerMap.get(teamId ?? "");

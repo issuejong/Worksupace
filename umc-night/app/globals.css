@@ -28,3 +28,18 @@
 .option.selected .option-number{background:var(--orange);color:white}
 .option-text{min-width:0;font-size:clamp(1.05rem,2.5vw,1.25rem);line-height:1.35;letter-spacing:-.025em;overflow-wrap:anywhere}
 @media(max-width:760px){.option-grid,.screen-options{grid-template-columns:1fr}.screen-option{min-height:78px;padding:14px 18px}.screen-option-number{width:50px;height:50px;font-size:1.35rem}.screen-option-text{font-size:clamp(1.35rem,5vw,2rem)}.screen-stage:has(.screen-options){padding-bottom:50px}}
+
+.screen-stage:has(.screen-team-answers) .question-text{font-size:clamp(1.8rem,3.5vw,3.8rem);margin:clamp(12px,2vh,24px) auto}
+.screen-stage:has(.screen-team-answers) .question-image{max-height:22vh;margin:12px auto}
+.screen-stage:has(.screen-team-answers) .result-answer{font-size:clamp(2rem,5vw,5rem)}
+.screen-team-answers{width:min(100%,1200px);margin:clamp(20px,3vh,32px) auto 60px;text-align:left}
+.screen-team-answers h2{margin:0 0 14px;color:var(--gold);font-size:clamp(1.1rem,1.6vw,1.5rem);letter-spacing:-.03em}
+.screen-team-answer-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(10px,1.2vw,18px)}
+.screen-team-answer{min-width:0;min-height:112px;display:flex;flex-direction:column;justify-content:center;gap:10px;padding:18px 22px;border:2px solid #fff2da;border-radius:20px;background:linear-gradient(140deg,#fffdf7,#f6eadb);color:var(--ink);box-shadow:0 14px 30px #0003,inset 5px 0 0 var(--orange)}
+.screen-team-name{font-size:clamp(1rem,1.5vw,1.35rem);font-weight:800;color:#8b391f;overflow-wrap:anywhere}
+.screen-team-choice{min-width:0;display:flex;align-items:center;gap:12px;font-size:clamp(1.4rem,2.3vw,2.35rem);line-height:1.2;letter-spacing:-.04em;overflow-wrap:anywhere}
+.screen-team-choice-number{flex:none;display:inline-grid;place-items:center;width:42px;height:42px;border-radius:11px;background:var(--orange);color:white;font-size:1.05rem;font-variant-numeric:tabular-nums}
+.screen-team-answer.unanswered{background:#f2e9dd;color:#655950}
+.screen-team-answer.unanswered .screen-team-name{color:#776b61}
+@media(max-width:900px){.screen-team-answer-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.screen-team-answer-grid{grid-template-columns:1fr}.screen-team-answer{min-height:90px}.screen-team-answers{margin-bottom:70px}}
