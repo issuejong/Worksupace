@@ -157,6 +157,14 @@ suite("live game against isolated PostgreSQL", () => {
     await expect(changeSetup({ action: "deleteQuestion", id: usedQuestion })).rejects.toMatchObject({ code: "QUESTION_HAS_HISTORY" });
     await expect(changeSetup({ action: "deleteRound", id: roundId })).rejects.toMatchObject({ code: "ROUND_HAS_QUESTIONS" });
 
+    const originalOrder = (await setupState()).questions.filter(item => item.round_id === roundId).map(item => item.id);
+    const reversedOrder = [...originalOrder].reverse();
+    await changeSetup({ action: "reorderQuestions", roundId, expectedQuestionIds: originalOrder, questionIds: reversedOrder });
+    expect((await setupState()).questions.filter(item => item.round_id === roundId).map(item => item.id)).toEqual(reversedOrder);
+    expect((await db()`select position from public.questions where round_id=${roundId} order by position`).map(item => item.position)).toEqual([0, 1]);
+    await expect(changeSetup({ action: "reorderQuestions", roundId, expectedQuestionIds: originalOrder, questionIds: originalOrder })).rejects.toMatchObject({ code: "STALE_QUESTION_ORDER" });
+    await expect(changeSetup({ action: "reorderQuestions", roundId, expectedQuestionIds: reversedOrder, questionIds: [reversedOrder[0], reversedOrder[0]] })).rejects.toMatchObject({ code: "INVALID_QUESTION_ORDER" });
+
     const spareRound = await changeSetup({ action: "round", title: "임시 라운드", position: 2 });
     if (!("id" in spareRound)) throw new Error("Round creation failed");
     const spareRoundId = spareRound.id;

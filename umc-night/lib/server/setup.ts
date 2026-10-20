@@ -22,7 +22,7 @@ export async function setupState() {
   const [teams, rounds, questions] = await Promise.all([
     sql`select id,number,name from public.teams order by number`,
     sql`select id,title,position from public.rounds order by position,created_at`,
-    sql`select id,round_id,kind,prompt,options,correct_answer,answer_mode,duration_seconds,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path from public.questions order by position,created_at`,
+    sql`select id,round_id,kind,prompt,options,correct_answer,answer_mode,duration_seconds,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path from public.questions order by position,created_at,id`,
   ]);
   return { teams, rounds, questions };
 }
@@ -33,6 +33,7 @@ export async function changeSetup(raw: unknown) {
     z.object({ action: z.literal("deleteTeam"), id: uuid }),
     z.object({ action: z.literal("round"), id: uuid.optional(), title: z.string().trim().min(1).max(80), position: z.number().int().min(0).max(9999) }),
     z.object({ action: z.literal("question"), id: uuid.optional(), ...questionFields.shape }),
+    z.object({ action: z.literal("reorderQuestions"), roundId: uuid, questionIds: z.array(uuid).min(1).max(10000), expectedQuestionIds: z.array(uuid).min(1).max(10000) }),
     z.object({ action: z.literal("deleteQuestion"), id: uuid }),
     z.object({ action: z.literal("deleteRound"), id: uuid }),
   ]).parse(raw);
@@ -81,6 +82,24 @@ export async function changeSetup(raw: unknown) {
       : await sql`insert into public.questions(round_id,kind,prompt,options,correct_answer,answer_mode,duration_seconds,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path) values (${roundId},${kind},${prompt},${sql.json(effectiveOptions)},${storedAnswer},${answerMode},${durationSeconds},${scoringMode},${waitForAll},${position},${practice},${active},${imageId},${revealImageId}) returning id`;
     if (!rows.length) throw new AppError("문제를 찾지 못했습니다.", 404);
     return { id: rows[0].id };
+  }
+  if (input.action === "reorderQuestions") {
+    return sql.begin(async tx => {
+      const round = await tx`select id from public.rounds where id=${input.roundId} for update`;
+      if (!round.length) throw new AppError("라운드를 찾지 못했습니다.", 404);
+      const rows = await tx`select id from public.questions where round_id=${input.roundId} order by position,created_at,id for update`;
+      const currentIds = rows.map(row => String(row.id));
+      if (currentIds.length !== input.expectedQuestionIds.length || currentIds.some((id, index) => id !== input.expectedQuestionIds[index])) {
+        throw new AppError("다른 화면에서 문제 순서가 변경되었습니다. 목록을 새로고침한 뒤 다시 시도해 주세요.", 409, "STALE_QUESTION_ORDER");
+      }
+      if (input.questionIds.length !== currentIds.length || new Set(input.questionIds).size !== currentIds.length || input.questionIds.some(id => !currentIds.includes(id))) {
+        throw new AppError("같은 라운드의 문제를 빠짐없이 선택해 주세요.", 400, "INVALID_QUESTION_ORDER");
+      }
+      for (const [position, id] of input.questionIds.entries()) {
+        await tx`update public.questions set position=${position} where id=${id}`;
+      }
+      return { ordered: true };
+    });
   }
   if (input.action === "deleteQuestion") {
     const used = await sql`select 1 from public.run_questions where question_id=${input.id} limit 1`;
