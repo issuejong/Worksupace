@@ -33,6 +33,7 @@ npm run dev
 
 1. Supabase 무료 프로젝트를 생성하고 SQL Editor에서 `supabase/migrations/202610140001_init.sql`, `supabase/migrations/202610150001_qr_join.sql`, `supabase/migrations/202610150002_team_transfer.sql`, `supabase/migrations/202610160001_question_rules.sql`, `supabase/migrations/202610190001_live_answers.sql`, `supabase/migrations/202610200001_correct_counts.sql` 순서로 실행합니다. `quiz-media` 비공개 Storage 버킷도 생성됩니다.
 2. Supabase Authentication에서 진행자 계정을 만듭니다. 해당 사용자의 UUID를 확인하고 SQL Editor에서 `insert into public.host_users(user_id) values ('사용자-UUID');`를 실행합니다.
+   - 아이디로 로그인할 계정은 Supabase Auth에 `아이디@umc-night.invalid` 형식으로 등록하고 이메일을 자동 확인 처리합니다. 아이디는 영문·숫자·밑줄 3~32자이며 소문자로 저장합니다. `/admin`에서는 아이디만 입력할 수 있고, 기존 이메일 계정도 그대로 로그인할 수 있습니다. 이 별칭 주소로는 메일을 받을 수 없으므로 비밀번호 재설정은 Supabase 관리자가 처리합니다. 비밀번호는 코드나 문서에 저장하지 않습니다.
 3. `npm run dev`로 실행한 뒤 `/admin`에서 로그인합니다. `/screen`의 QR을 띄우면 팀 대표가 `/join`으로 접속해 이름을 입력하고 자동 등록합니다. 한 팀당 대표 기기 하나를 사용하며, 같은 이름은 중복 등록할 수 없습니다.
 4. 라운드와 문제를 등록하고 `/admin/live`에서 연습 게임을 만든 뒤 `/join`, `/play`, `/screen`을 각각 확인합니다.
 5. 대표 휴대폰을 바꿔야 하면 진행자 노트북의 `/admin/live`에서 해당 팀의 `기기 이전 QR`을 발급하고 새 휴대폰으로 스캔합니다. 새 기기에서 `이 기기로 이어하기`를 누르면 기존 대표 기기의 접속이 해제됩니다. 다시 발급한 QR은 이전 QR을 무효화합니다.
