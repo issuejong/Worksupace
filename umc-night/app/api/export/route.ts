@@ -9,13 +9,16 @@ export async function GET(request: NextRequest) {
     const runs = await sql`select id,mode,phase,created_at,finished_at from public.runs order by created_at desc limit 1`;
     if (!runs.length) return { run: null, teams: [], questions: [], answers: [], grades: [], scoreEntries: [] };
     const run = runs[0];
-    const [teams, questions, answers, grades, scoreEntries] = await Promise.all([
+    const [teams, questions, answers, grades, scoreEntries, typingProgress, typingAttempts, typingRuns] = await Promise.all([
       sql`select id,number,name from public.teams order by number`,
       sql`select id,question_id,snapshot,selected_answer,voided,graded_at,started_at from public.run_questions where run_id=${run.id} order by started_at`,
       sql`select a.run_question_id,a.team_id,a.value,a.updated_at from public.answers a join public.run_questions rq on rq.id=a.run_question_id where rq.run_id=${run.id}`,
       sql`select g.* from public.grades g join public.run_questions rq on rq.id=g.run_question_id where rq.run_id=${run.id}`,
       sql`select team_id,run_question_id,delta,reason,created_at from public.score_entries where run_id=${run.id} order by created_at`,
+      sql`select p.* from public.typing_team_progress p join public.run_questions rq on rq.id=p.run_question_id where rq.run_id=${run.id}`,
+      sql`select a.* from public.typing_attempts a join public.run_questions rq on rq.id=a.run_question_id where rq.run_id=${run.id} order by a.received_at`,
+      sql`select t.* from public.typing_runs t join public.run_questions rq on rq.id=t.run_question_id where rq.run_id=${run.id}`,
     ]);
-    return { run, teams, questions, answers, grades, scoreEntries };
+    return { run, teams, questions, answers, grades, scoreEntries, typingProgress, typingAttempts, typingRuns };
   });
 }

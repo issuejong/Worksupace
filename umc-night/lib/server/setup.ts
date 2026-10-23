@@ -1,10 +1,13 @@
 import { z } from "zod";
 import { db } from "./db";
 import { AppError } from "./errors";
+import { normalizeTyping } from "../typing";
 
 const uuid = z.uuid();
 const questionFields = z.object({
-  roundId: uuid, kind: z.enum(["short", "choice", "ox"]),
+  roundId: uuid, kind: z.enum(["short", "choice", "ox", "typing"]),
+  typingPhrases: z.array(z.string().max(400)).max(10).default([]),
+  typingAwardWinner: z.boolean().default(false),
   prompt: z.string().trim().min(1).max(500),
   options: z.array(z.string().trim().min(1).max(120)).max(6).default([]),
   correctAnswer: z.string().trim().max(120).default(""),
@@ -22,7 +25,7 @@ export async function setupState() {
   const [teams, rounds, questions] = await Promise.all([
     sql`select id,number,name from public.teams order by number`,
     sql`select id,title,position from public.rounds order by position,created_at`,
-    sql`select id,round_id,kind,prompt,options,correct_answer,answer_mode,duration_seconds,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path from public.questions order by position,created_at,id`,
+    sql`select id,round_id,kind,prompt,options,correct_answer,answer_mode,duration_seconds,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path,typing_phrases,typing_award_winner from public.questions order by position,created_at,id`,
   ]);
   return { teams, rounds, questions };
 }
@@ -57,7 +60,7 @@ export async function changeSetup(raw: unknown) {
       if (!existing.length) throw new AppError("팀을 찾지 못했습니다.", 404);
       const active = await tx`select id from public.runs where phase <> 'finished' limit 1`;
       if (active.length) throw new AppError("진행 중인 게임이 있어 팀을 삭제할 수 없습니다. 게임을 마친 뒤 다시 시도해 주세요.", 409, "RUN_ACTIVE");
-      const used = await tx`select 1 from public.answers where team_id=${input.id} union all select 1 from public.grades where team_id=${input.id} union all select 1 from public.score_entries where team_id=${input.id} limit 1`;
+      const used = await tx`select 1 from public.answers where team_id=${input.id} union all select 1 from public.grades where team_id=${input.id} union all select 1 from public.score_entries where team_id=${input.id} union all select 1 from public.typing_team_progress where team_id=${input.id} limit 1`;
       if (used.length) throw new AppError("답안이나 점수 기록이 있는 팀은 삭제할 수 없습니다. 연습 기록은 초기화한 뒤 다시 시도해 주세요.", 409, "TEAM_HAS_HISTORY");
       await tx`delete from public.teams where id=${input.id}`;
       return { deleted: true };
@@ -71,15 +74,21 @@ export async function changeSetup(raw: unknown) {
     return { id: rows[0].id };
   }
   if (input.action === "question") {
-    const { id, roundId, kind, prompt, options, correctAnswer, answerMode, durationSeconds, scoringMode, waitForAll, position, practice, active, imageId, revealImageId } = input;
-    const effectiveOptions = kind === "ox" ? ["O", "X"] : kind === "short" ? [] : options;
+    const { id, roundId, kind, prompt, options, correctAnswer, durationSeconds, position, practice, active, imageId, revealImageId } = input;
+    const typing = kind === "typing";
+    const phrases = typing ? input.typingPhrases.map(normalizeTyping) : [];
+    if (typing && (!phrases.length || phrases.some(value => !value || [...value].length > 200 || /[\r\n\t]/.test(value)))) throw new AppError("타자 문장은 한 줄 1~200자로, 1~10차례를 등록해 주세요.");
+    const answerMode = typing ? "live" : input.answerMode;
+    const scoringMode = typing ? "first_correct" : input.scoringMode;
+    const waitForAll = typing || input.waitForAll;
+    const effectiveOptions = kind === "ox" ? ["O", "X"] : (kind === "short" || typing) ? [] : options;
     if (kind === "choice" && effectiveOptions.length < 2) throw new AppError("객관식은 보기가 2개 이상 필요합니다.");
     if (answerMode === "fixed" && !correctAnswer) throw new AppError("미리 정답을 정하는 문제는 정답을 입력해 주세요.");
     if (answerMode === "fixed" && kind !== "short" && !effectiveOptions.includes(correctAnswer)) throw new AppError("정답이 보기에 있어야 합니다.");
     const storedAnswer = answerMode === "live" ? null : correctAnswer;
     const rows = id
-      ? await sql`update public.questions set round_id=${roundId},kind=${kind},prompt=${prompt},options=${sql.json(effectiveOptions)},correct_answer=${storedAnswer},answer_mode=${answerMode},points=1,duration_seconds=${durationSeconds},scoring_mode=${scoringMode},wait_for_all=${waitForAll},position=${position},practice=${practice},active=${active},image_path=${imageId},reveal_image_path=${revealImageId} where id=${id} returning id`
-      : await sql`insert into public.questions(round_id,kind,prompt,options,correct_answer,answer_mode,duration_seconds,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path) values (${roundId},${kind},${prompt},${sql.json(effectiveOptions)},${storedAnswer},${answerMode},${durationSeconds},${scoringMode},${waitForAll},${position},${practice},${active},${imageId},${revealImageId}) returning id`;
+      ? await sql`update public.questions set round_id=${roundId},kind=${kind},prompt=${prompt},options=${sql.json(effectiveOptions)},correct_answer=${storedAnswer},answer_mode=${answerMode},points=1,duration_seconds=${durationSeconds},scoring_mode=${scoringMode},wait_for_all=${waitForAll},position=${position},practice=${practice},active=${active},image_path=${imageId},reveal_image_path=${revealImageId},typing_phrases=${sql.json(phrases)},typing_award_winner=${typing && input.typingAwardWinner} where id=${id} returning id`
+      : await sql`insert into public.questions(round_id,kind,prompt,options,correct_answer,answer_mode,duration_seconds,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path,typing_phrases,typing_award_winner) values (${roundId},${kind},${prompt},${sql.json(effectiveOptions)},${storedAnswer},${answerMode},${durationSeconds},${scoringMode},${waitForAll},${position},${practice},${active},${imageId},${revealImageId},${sql.json(phrases)},${typing && input.typingAwardWinner}) returning id`;
     if (!rows.length) throw new AppError("문제를 찾지 못했습니다.", 404);
     return { id: rows[0].id };
   }

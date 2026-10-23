@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
   return hostRoute(request, async userId => {
     const input = z.discriminatedUnion("action", [
       z.object({ action: z.literal("create"), mode: z.enum(["rehearsal", "event"]) }),
-      z.object({ action: z.enum(["start", "pause", "resume", "close", "reveal", "void", "finish"]), version: z.number().int().min(0), answer: z.string().optional() }),
+      z.object({ action: z.enum(["start", "pause", "resume", "close", "reveal", "void", "finish", "startTyping", "forceClose"]), version: z.number().int().min(0), answer: z.string().optional(), reason: z.string().trim().min(1).max(200).optional() }),
     ]).parse(await jsonBody(request));
     return input.action === "create" ? startRun(input.mode) : transitionRun(input, userId);
   });
