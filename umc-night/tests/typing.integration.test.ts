@@ -125,6 +125,17 @@ suite("typing relay against isolated PostgreSQL", () => {
     await expect(changeSetup({action:"deleteTeam",id:teamB})).rejects.toMatchObject({code:"TEAM_HAS_HISTORY"});
   });
 
+  it("excludes trusted API processing latency and supports one-click relay results", async () => {
+    await open(["정확한 시간"], true); await start();
+    await typingRequest(teamA, { action: "submit", questionId, turn: 0, version: 0, value: "정확한 시간", requestId: randomUUID() }, performance.now() - 2000);
+    await submit(teamB, "정확한 시간", 0, 0);
+    const before = (await stateFor("host")).typing!;
+    expect(before.teams.find(t=>t.teamId===teamA)!.elapsedMs! + 1500).toBeLessThan(before.teams.find(t=>t.teamId===teamB)!.elapsedMs!);
+    await act("revealAndGrade");
+    expect((await stateFor("screen")).typing!.resultsVisible).toBe(true);
+    expect((await stateFor("host")).teams.find(t=>t.id===teamA)?.score).toBe(1);
+  });
+
   it("keeps practice results out of totals and cascades all relay records on rehearsal reset", async () => {
     await open(["연습"],true,true); await start();
     await Promise.all([submit(teamA,"연습",0,0),submit(teamB,"연습",0,0)]);

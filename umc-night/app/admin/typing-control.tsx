@@ -2,20 +2,20 @@
 import type { GameState } from "../../lib/client";
 import { TypingBoard } from "../components/typing-relay";
 
-export function TypingControl({ state, clock, busy, mutate }: { state: GameState; clock: number; busy: boolean; mutate: (url: string, body: unknown) => Promise<boolean> }) {
+export function TypingControl({ state, clock, clockReady, busy, mutate }: { state: GameState; clock: number; clockReady: boolean; busy: boolean; mutate: (url: string, body: unknown) => Promise<boolean> }) {
   const relay = state.typing!;
   const allReady = relay.teams.every(team => team.ready);
   const allComplete = relay.teams.every(team => team.completed);
-  const started = Boolean(relay.startsAt && clock >= Date.parse(relay.startsAt));
-  async function action(name: string, reason?: string) { await mutate("/api/run", { action: name, version: state.version, ...(reason ? { reason } : {}) }); }
+  const started = Boolean(relay.startsAt && clockReady && clock >= Date.parse(relay.startsAt));
+  async function action(name: string, reason?: string) { await mutate("/api/run", { action: name, version: state.version, questionId: state.question?.id, ...(reason ? { reason } : {}) }); }
   return <><section className="card card-dark stack"><p className="section-label">TYPING RELAY</p><h2>{state.question?.prompt}</h2>
     <p>{state.question?.roundTitle} · {relay.turns}차례 · 오타 제출마다 +1초</p>
-    <p>{relay.awardWinner && !state.question?.practice ? "공동 우승 포함, 우승팀 누적 정답 +1" : "기록 대결 · 누적 정답에는 반영하지 않음"}</p>
-    <div className="row">{state.phase === "live" && !relay.startsAt && <button className="button button-primary" disabled={busy || !allReady} onClick={() => void action("startTyping")}>전 팀 동시 시작 · 5초 카운트다운</button>}
+    <p>{relay.awardWinner && !state.question?.practice ? "공동 우승 포함, 우승팀 누적 점수 +1점" : "기록 대결 · 누적 점수에는 반영하지 않음"}</p>
+    <div className="row">{state.phase === "live" && !relay.startsAt && <button className="button button-primary" disabled={busy || !allReady || !clockReady} onClick={() => void action("startTyping")}>전 팀 동시 시작 · 5초 카운트다운</button>}
       {state.phase === "live" && relay.startsAt && <button className="button button-outline" disabled={busy || !started} onClick={() => void action("pause")}>일시정지</button>}
       {state.phase === "paused" && <button className="button button-primary" disabled={busy} onClick={() => void action("resume")}>재개</button>}
-      {(state.phase === "live" || state.phase === "paused") && <><button className="button button-primary" disabled={busy || !allComplete} onClick={() => void action("close")}>전 팀 완료 · 마감</button><button className="button button-outline" disabled={busy} onClick={() => { const reason = window.prompt("미완료 팀은 DNF로 처리됩니다. 강제 마감 사유를 입력해 주세요."); if (reason?.trim()) void action("forceClose", reason.trim()); }}>강제 마감</button></>}
-      {state.phase === "closed" && <button className="button button-primary" disabled={busy} onClick={() => void action("reveal")}>기록·순위 공개</button>}
+      {(state.phase === "live" || state.phase === "paused") && <><button className="button button-primary" disabled={busy || !allComplete} onClick={() => void action("revealAndGrade")}>전 팀 완료 · 결과 공개</button><button className="button button-outline" disabled={busy} onClick={() => { const reason = window.prompt("미완료 팀은 DNF로 처리됩니다. 강제 마감 사유를 입력해 주세요."); if (reason?.trim()) void action("forceClose", reason.trim()); }}>강제 마감</button></>}
+      {state.phase === "closed" && <button className="button button-primary" disabled={busy} onClick={() => void action("revealAndGrade")}>기록·순위 공개</button>}
       {state.phase === "graded" && <>{state.hasNextQuestion && <button className="button button-primary" disabled={busy} onClick={() => void action("start")}>{state.roundBreak ? "다음 라운드 시작" : "다음 문제 시작"}</button>}<button className="button button-outline" disabled={busy} onClick={() => { if (window.confirm("행사 최종 결과를 공개할까요?")) void action("finish"); }}>최종 결과 공개</button></>}
       {!relay.voided && <button className="button button-outline" disabled={busy} onClick={() => { if (window.confirm("타자 게임을 무효 처리할까요? 이 게임의 누적 집계도 취소됩니다.")) void action("void"); }}>게임 무효</button>}
     </div>

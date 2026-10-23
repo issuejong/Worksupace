@@ -11,7 +11,7 @@ if (!url) {
   throw new Error("DATABASE_URL is required for the production migration.");
 }
 
-const migrations = ["202610150001_qr_join.sql", "202610150002_team_transfer.sql", "202610160001_question_rules.sql", "202610190001_live_answers.sql", "202610200001_correct_counts.sql", "202610230001_typing_relay.sql"];
+const migrations = ["202610150001_qr_join.sql", "202610150002_team_transfer.sql", "202610160001_question_rules.sql", "202610190001_live_answers.sql", "202610200001_correct_counts.sql", "202610230001_typing_relay.sql", "202610230002_live_sync.sql"];
 
 const connection = postgres(url, {
   ...(process.env.DATABASE_PASSWORD
@@ -29,9 +29,7 @@ try {
   await connection.begin(async (transaction) => {
     for (const migration of migrations) {
       const source = await readFile(new URL(`../supabase/migrations/${migration}`, import.meta.url), "utf8");
-      for (const statement of source.split(";").map(value => value.trim()).filter(Boolean)) {
-        await transaction.unsafe(statement);
-      }
+      await transaction.unsafe(source).simple();
     }
   });
   console.log("Production database migrations applied.");

@@ -1,4 +1,6 @@
+import type { TransactionSql } from "postgres";
 import { db } from "./db";
+import { quizAnswerMatches } from "../quiz";
 import { AppError } from "./errors";
 import { initializeTyping, typingState, typingTransition } from "./typing";
 
@@ -56,11 +58,13 @@ export async function startRun(mode: "rehearsal" | "event") {
   });
 }
 
-export async function transitionRun(input: { action: "start" | "pause" | "resume" | "close" | "reveal" | "void" | "finish" | "startTyping" | "forceClose"; version: number; answer?: string; reason?: string; }, actorId: string) {
+export async function transitionRun(input: { action: "start" | "pause" | "resume" | "close" | "reveal" | "void" | "finish" | "startTyping" | "forceClose" | "revealAndGrade" | "showRoundResults"; version: number; answer?: string; reason?: string; verdicts?: Record<string, boolean>; questionId?: string; }, actorId: string) {
   return db().begin(async tx => {
     const rows = await tx`select * from public.runs where phase <> 'finished' order by created_at desc limit 1 for update`;
     if (!rows.length) throw new AppError("진행할 게임을 먼저 생성해 주세요.", 409, "NO_RUN");
     const run = rows[0];
+    if (input.questionId && input.questionId !== run.current_run_question_id) throw new AppError("현재 문제가 변경되었습니다.", 409, "STALE_VERSION");
+    if (input.action === "revealAndGrade" && run.phase === "graded" && Number(run.version) === input.version + 1) return { phase: "graded", version: Number(run.version), duplicate: true };
     if (run.version !== input.version) throw new AppError("다른 화면에서 진행 상태가 바뀌었습니다. 새로고침 후 다시 시도해 주세요.", 409, "STALE_VERSION");
     const phase = run.phase as Phase;
     if (input.action === "start") {
@@ -72,6 +76,10 @@ export async function transitionRun(input: { action: "start" | "pause" | "resume
         order by r.position, r.created_at, q.position, q.created_at limit 1`;
       if (!questions.length) throw new AppError("남은 문제가 없습니다. 게임을 종료해 주세요.", 409, "NO_QUESTIONS");
       const question = questions[0];
+      if (run.round_results_pending && run.current_run_question_id) {
+        const previous = (await tx`select snapshot from public.run_questions where id=${run.current_run_question_id}`)[0].snapshot as Snapshot;
+        if (previous.round_id !== question.round_id) throw new AppError("중간 순위를 공개한 뒤 다음 라운드를 시작해 주세요.", 409, "ROUND_RESULTS_PENDING");
+      }
       const snapshot = snapshotOf(question);
       if (snapshot.wait_for_all || snapshot.kind === "typing") {
         const requiredTeams = await tx`select id from public.teams order by number`;
@@ -80,12 +88,41 @@ export async function transitionRun(input: { action: "start" | "pause" | "resume
       }
       const runQuestions = await tx`insert into public.run_questions (run_id,question_id,snapshot) values (${run.id},${question.id},${tx.json(snapshot)}) returning id`;
       if (snapshot.kind === "typing") await initializeTyping(tx, String(runQuestions[0].id), snapshot.required_team_ids);
-      const updated = await tx`update public.runs set phase='live', current_run_question_id=${runQuestions[0].id}, deadline_at=case when ${snapshot.wait_for_all} then null else clock_timestamp()+make_interval(secs=>${snapshot.duration_seconds}) end, remaining_seconds=null, version=version+1 where id=${run.id} returning version`;
+      const updated = await tx`update public.runs set phase='live',round_results_pending=false, current_run_question_id=${runQuestions[0].id}, deadline_at=case when ${snapshot.wait_for_all} then null else clock_timestamp()+make_interval(secs=>${snapshot.duration_seconds}) end, remaining_seconds=null, version=version+1 where id=${run.id} returning version`;
       return { phase: "live", version: updated[0].version };
+    }
+    if (input.action === "showRoundResults") {
+      if (phase !== "graded" || !run.round_results_pending) throw new AppError("공개할 라운드 결과가 없습니다.", 409);
+      const current = (await tx`select snapshot from public.run_questions where id=${run.current_run_question_id}`)[0].snapshot as Snapshot;
+      const next = await tx`select q.round_id from public.questions q join public.rounds r on r.id=q.round_id where q.active and not exists (select 1 from public.run_questions rq where rq.run_id=${run.id} and rq.question_id=q.id) order by r.position,r.created_at,q.position,q.created_at limit 1`;
+      if (next.length && next[0].round_id === current.round_id) throw new AppError("라운드의 마지막 문제 이후 공개할 수 있습니다.", 409);
+      const updated = await tx`update public.runs set round_results_pending=false,version=version+1 where id=${run.id} returning version`;
+      return { phase: "graded", version: Number(updated[0].version) };
     }
     if (!["void","finish"].includes(input.action) && run.current_run_question_id) {
       const current = (await tx`select snapshot from public.run_questions where id=${run.current_run_question_id}`)[0];
       if ((current?.snapshot as Snapshot)?.kind === "typing") return typingTransition(tx, run, input, actorId);
+    }
+    if (input.action === "revealAndGrade") {
+      if (!["live","paused","closed","revealed"].includes(phase)) throw new AppError("공개할 문제가 없습니다.", 409);
+      const rq = (await tx`select * from public.run_questions where id=${run.current_run_question_id} for update`)[0];
+      if (!rq || rq.voided || rq.graded_at) throw new AppError("채점할 수 없는 문제입니다.", 409);
+      const snapshot = rq.snapshot as Snapshot;
+      if (snapshot.wait_for_all && ["live","paused"].includes(phase)) {
+        const submitted = await tx`select team_id from public.answers where run_question_id=${rq.id}`;
+        if (snapshot.required_team_ids.some(id => !submitted.some(row => row.team_id === id))) throw new AppError("모든 팀이 제출해야 정답을 공개할 수 있습니다.", 409, "WAITING_FOR_TEAMS");
+      }
+      let answer = snapshot.correct_answer;
+      if (snapshot.answer_mode === "live") {
+        answer = phase === "revealed" ? rq.selected_answer : input.answer?.trim() ?? rq.selected_answer;
+        if (!answer || answer.length > 120) throw new AppError("공개할 정답을 먼저 선택해 주세요.", 400, "ANSWER_REQUIRED");
+        if (snapshot.kind !== "short" && !snapshot.options.includes(answer)) throw new AppError("보기 중에서 정답을 선택해 주세요.", 400, "ANSWER_INVALID");
+        await tx`update public.run_questions set selected_answer=${answer} where id=${rq.id}`;
+      }
+      if (!answer) throw new AppError("정답을 확인해 주세요.", 400, "ANSWER_REQUIRED");
+      await gradeAnswers(tx, String(run.id), String(rq.id), snapshot, answer, actorId, input.verdicts ?? {});
+      const updated = await tx`update public.runs set phase='graded',round_results_pending=true,deadline_at=null,remaining_seconds=0,version=version+1 where id=${run.id} returning version`;
+      return { phase: "graded", version: Number(updated[0].version) };
     }
     if (input.action === "pause") {
       if (phase !== "live") throw new AppError("답변 진행 중에만 일시정지할 수 있습니다.", 409);
@@ -181,6 +218,25 @@ export async function submitAnswer(teamId: string, input: { value: string; reque
   });
 }
 
+
+async function gradeAnswers(tx: TransactionSql, runId: string, questionId: string, snapshot: Snapshot, correctAnswer: string, actorId: string, verdicts: Record<string, boolean>) {
+    const teams = await tx`select id from public.teams order by number`;
+    const answers = await tx`select team_id,value from public.answers where run_question_id=${questionId} order by updated_at,team_id`;
+    const answerMap = new Map(answers.map(a => [a.team_id as string, a.value as string]));
+    const correctTeams = new Set(teams.filter(team => {
+      const answer = answerMap.get(team.id);
+      return Boolean(answer && (snapshot.kind === "short" ? (verdicts[team.id] ?? quizAnswerMatches(answer, correctAnswer)) : answer === correctAnswer));
+    }).map(team => String(team.id)));
+    const firstCorrectId = answers.find(answer => correctTeams.has(String(answer.team_id)))?.team_id;
+    for (const team of teams) {
+      const correct = correctTeams.has(String(team.id));
+      const points = correct && !snapshot.practice && (snapshot.scoring_mode !== "first_correct" || team.id === firstCorrectId) ? 1 : 0;
+      await tx`insert into public.grades(run_question_id,team_id,correct,points) values (${questionId},${team.id},${correct},${points})`;
+      if (points) await tx`insert into public.score_entries(run_id,run_question_id,team_id,delta,reason,actor_id) values (${runId},${questionId},${team.id},${points},'정답',${actorId})`;
+    }
+    await tx`update public.run_questions set graded_at=now() where id=${questionId}`;
+}
+
 export async function gradeCurrent(actorId: string, version: number, verdicts: Record<string, boolean>) {
   return db().begin(async tx => {
     const runs = await tx`select * from public.runs where phase <> 'finished' order by created_at desc limit 1 for update`;
@@ -195,21 +251,7 @@ export async function gradeCurrent(actorId: string, version: number, verdicts: R
     if (snapshot.kind === "typing") throw new AppError("타자 게임은 결과 공개 시 자동 확정됩니다.", 409);
     const correctAnswer = snapshot.answer_mode === "live" ? rq[0].selected_answer as string | null : snapshot.correct_answer;
     if (!correctAnswer) throw new AppError("정답을 확정한 뒤 채점해 주세요.", 409, "ANSWER_REQUIRED");
-    const teams = await tx`select id from public.teams order by number`;
-    const answers = await tx`select team_id,value from public.answers where run_question_id=${rq[0].id} order by updated_at,team_id`;
-    const answerMap = new Map(answers.map(a => [a.team_id as string, a.value as string]));
-    const correctTeams = new Set(teams.filter(team => {
-      const answer = answerMap.get(team.id);
-      return Boolean(answer && (snapshot.kind === "short" ? verdicts[team.id] === true : answer === correctAnswer));
-    }).map(team => String(team.id)));
-    const firstCorrectId = answers.find(answer => correctTeams.has(String(answer.team_id)))?.team_id;
-    for (const team of teams) {
-      const correct = correctTeams.has(String(team.id));
-      const points = correct && !snapshot.practice && (snapshot.scoring_mode !== "first_correct" || team.id === firstCorrectId) ? 1 : 0;
-      await tx`insert into public.grades(run_question_id,team_id,correct,points) values (${rq[0].id},${team.id},${correct},${points})`;
-      if (points) await tx`insert into public.score_entries(run_id,run_question_id,team_id,delta,reason,actor_id) values (${run.id},${rq[0].id},${team.id},${points},'정답',${actorId})`;
-    }
-    await tx`update public.run_questions set graded_at=now() where id=${rq[0].id}`;
+    await gradeAnswers(tx, String(run.id), String(rq[0].id), snapshot, correctAnswer, actorId, verdicts);
     const updated = await tx`update public.runs set phase='graded',version=version+1 where id=${run.id} returning version`;
     return { phase: "graded", version: updated[0].version, duplicate: false };
   });
@@ -244,9 +286,8 @@ export async function correctGrade(actorId: string, input: { runQuestionId: stri
 
 export async function stateFor(view: "screen" | "team" | "host", teamId?: string) {
   const sql = db();
-  const teams = await sql`select id,number,name from public.teams order by number`;
-  const run = await currentRun();
-  if (!run) return { typing: null, phase: "lobby", runId: null, version: 0, teams: teams.map(t => ({ id:t.id, number:t.number, name:t.name, score: view === "host" ? 0 : null })), scoresVisible: view === "host", roundBreak: false, hasNextQuestion: false, question: null, deadlineAt: null, remainingSeconds: null, requiredTeamIds: [], serverNow: new Date().toISOString(), ...(view === "team" ? { teamId } : {}) };
+  const [teams, run] = await Promise.all([sql`select id,number,name from public.teams order by number`, currentRun()]);
+  if (!run) return { typing: null, phase: "lobby", runId: null, version: 0, teams: teams.map(t => ({ id:t.id, number:t.number, name:t.name, score: view === "host" ? 0 : null })), scoresVisible: view === "host", roundResultsPending: false, roundBreak: false, hasNextQuestion: false, question: null, deadlineAt: null, remainingSeconds: null, requiredTeamIds: [], serverNow: new Date().toISOString(), ...(view === "team" ? { teamId } : {}) };
   const scoreRows = await sql`select team_id,coalesce(sum(delta),0)::integer as score from public.score_entries where run_id=${run.id} group by team_id`;
   const scoreMap = new Map(scoreRows.map(row => [row.team_id as string, Number(row.score)]));
   const rq = run.current_run_question_id ? (await sql`select * from public.run_questions where id=${run.current_run_question_id} limit 1`)[0] : null;
@@ -261,6 +302,8 @@ export async function stateFor(view: "screen" | "team" | "host", teamId?: string
       roundBreak = !next.length || next[0].round_id !== currentRoundId;
     }
   }
+  const roundResultsPending = roundBreak && Boolean(run.round_results_pending);
+  roundBreak = roundBreak && !run.round_results_pending;
   const scoresVisible = view === "host" || run.phase === "finished" || roundBreak;
   const publicTeams = teams.map(t => ({ id: t.id, number: t.number, name: t.name, score: scoresVisible ? scoreMap.get(t.id) ?? 0 : null }));
   const revealed = run.phase === "revealed" || run.phase === "graded" || run.phase === "finished";
@@ -279,7 +322,7 @@ export async function stateFor(view: "screen" | "team" | "host", teamId?: string
   const answerMap = new Map(answerRows.map(row => [row.team_id as string, row]));
   const screenAnswersVisible = view === "screen" && !rq?.voided && (run.phase === "revealed" || run.phase === "graded");
   const base = {
-    phase: run.phase as Phase, runId: run.id as string, mode: run.mode as string, version: Number(run.version), scoresVisible, roundBreak, hasNextQuestion,
+    phase: run.phase as Phase, runId: run.id as string, mode: run.mode as string, version: Number(run.version), scoresVisible, roundBreak, roundResultsPending, hasNextQuestion,
     typing: snapshot?.kind === "typing" && rq ? await typingState(String(rq.id), snapshot, String(run.phase), view, teamId, Boolean(rq.voided)) : null,
     ...(view === "screen" ? { teamAnswersVisible: screenAnswersVisible } : {}),
     serverNow: new Date().toISOString(), deadlineAt: run.deadline_at as Date | null,

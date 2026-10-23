@@ -33,7 +33,7 @@ export async function typingState(questionId: string, snapshot: Snapshot, phase:
 }
 
 export type TypingInput = { action: "ready"; questionId: string } | { action: "submit"; questionId: string; turn: number; value: string; requestId: string; version: number };
-export async function typingRequest(teamId: string, input: TypingInput) {
+export async function typingRequest(teamId: string, input: TypingInput, receivedMonotonic?: number) {
   return db().begin(async tx => {
     // Shared run lock permits teams to submit concurrently, but excludes host transitions.
     const runs = await tx`select r.*,rq.snapshot,rq.voided from public.runs r join public.run_questions rq on rq.id=r.current_run_question_id where r.phase<>'finished' for share of r`;
@@ -47,13 +47,17 @@ export async function typingRequest(teamId: string, input: TypingInput) {
       const duplicate = await tx`select result from public.typing_attempts where id=${input.requestId} and run_question_id=${input.questionId} and team_id=${teamId}`;
       if (duplicate.length) return duplicate[0].result as { correct: boolean; progress: TypingProgress; phrase: string | null };
     }
+    const began = performance.now();
     const relay = (await tx`select *,clock_timestamp() as server_now from public.typing_runs where run_question_id=${input.questionId}`)[0];
+    const ended = performance.now();
+    // Map the trusted API-entry timestamp to the DB clock, excluding auth/queue work.
+    const acceptedAt = Math.round(receivedMonotonic === undefined ? new Date(relay.server_now).getTime() : new Date(relay.server_now).getTime() + receivedMonotonic - (began + ended) / 2);
     if (input.action === "ready") {
       if (run.phase !== "live" || relay.starts_at) throw new AppError("이미 시작한 게임입니다.", 409);
       await tx`update public.typing_team_progress set ready=true where run_question_id=${input.questionId} and team_id=${teamId}`;
       return { ready: true };
     }
-    if (run.phase !== "live" || !relay.starts_at || relay.paused_at || new Date(relay.server_now).getTime() < new Date(relay.starts_at).getTime()) throw new AppError("아직 입력 시간이 아니거나 게임이 마감됐습니다.", 409, "TYPING_CLOSED");
+    if (run.phase !== "live" || !relay.starts_at || relay.paused_at || acceptedAt < new Date(relay.starts_at).getTime() || (relay.last_resumed_at && acceptedAt < new Date(relay.last_resumed_at).getTime())) throw new AppError("아직 입력 시간이 아니거나 게임이 마감됐습니다.", 409, "TYPING_CLOSED");
     if (progress.completed_at || progress.turn !== input.turn || progress.version !== input.version) throw new AppError("차례가 변경됐습니다. 현재 진행 상태를 확인해 주세요.", 409, "STALE_TYPING");
     const value = normalizeTyping(input.value);
     if (!value || [...value].length > 200) throw new AppError("입력할 문장을 확인해 주세요.");
@@ -61,11 +65,11 @@ export async function typingRequest(teamId: string, input: TypingInput) {
     const nextTurn = Number(progress.turn) + (correct ? 1 : 0);
     const mistakes = Number(progress.mistakes) + (correct ? 0 : 1);
     const complete = nextTurn === snapshot.typing_phrases.length;
-    const elapsed = complete ? Math.max(0, new Date(relay.server_now).getTime() - new Date(relay.starts_at).getTime() - Number(relay.paused_ms)) : null;
+    const elapsed = complete ? Math.max(0, acceptedAt - new Date(relay.starts_at).getTime() - Number(relay.paused_ms)) : null;
     const resultMs = elapsed === null ? null : typingResult(elapsed, mistakes);
-    const updated = await tx`update public.typing_team_progress set turn=${nextTurn},mistakes=${mistakes},version=version+1,completed_at=${complete ? relay.server_now : null},elapsed_ms=${elapsed},result_ms=${resultMs} where run_question_id=${input.questionId} and team_id=${teamId} returning *`;
+    const updated = await tx`update public.typing_team_progress set turn=${nextTurn},mistakes=${mistakes},version=version+1,completed_at=${complete ? new Date(acceptedAt) : null},elapsed_ms=${elapsed},result_ms=${resultMs} where run_question_id=${input.questionId} and team_id=${teamId} returning *`;
     const result = { correct, progress: progressOf(updated[0]), phrase: complete ? null : snapshot.typing_phrases[nextTurn] };
-    await tx`insert into public.typing_attempts(id,run_question_id,team_id,turn,value,correct,received_at,result) values (${input.requestId},${input.questionId},${teamId},${input.turn},${value},${correct},${relay.server_now},${tx.json({ ...result, progress: { ...result.progress } })})`;
+    await tx`insert into public.typing_attempts(id,run_question_id,team_id,turn,value,correct,received_at,result) values (${input.requestId},${input.questionId},${teamId},${input.turn},${value},${correct},${new Date(acceptedAt)},${tx.json({ ...result, progress: { ...result.progress } })})`;
     return result;
   });
 }
@@ -84,15 +88,19 @@ export async function typingTransition(tx: TransactionSql, run: Record<string, u
     await tx`update public.typing_runs set paused_at=${relay.server_now} where run_question_id=${id}`;
   } else if (input.action === "resume") {
     if (run.phase !== "paused" || !relay.paused_at) throw new AppError("일시정지 상태가 아닙니다.", 409);
-    await tx`update public.typing_runs set paused_ms=paused_ms+floor(extract(epoch from (${relay.server_now}::timestamptz-paused_at))*1000)::bigint,paused_at=null where run_question_id=${id}`;
+    await tx`update public.typing_runs set paused_ms=paused_ms+floor(extract(epoch from (${relay.server_now}::timestamptz-paused_at))*1000)::bigint,paused_at=null,last_resumed_at=${relay.server_now} where run_question_id=${id}`;
   } else if (input.action === "close" || input.action === "forceClose") {
     if (!["live","paused"].includes(String(run.phase))) throw new AppError("진행 중인 게임만 마감할 수 있습니다.", 409);
     const waiting = await tx`select 1 from public.typing_team_progress where run_question_id=${id} and completed_at is null limit 1`;
     if (input.action === "close" && waiting.length) throw new AppError("모든 팀이 완료해야 마감할 수 있습니다.", 409, "WAITING_FOR_TEAMS");
     if (input.action === "forceClose" && !input.reason?.trim()) throw new AppError("강제 마감 사유를 입력해 주세요.");
     await tx`update public.typing_runs set close_reason=${input.reason?.trim() ?? null},closed_by=${actorId},paused_at=coalesce(paused_at,${relay.server_now}) where run_question_id=${id}`;
-  } else if (input.action === "reveal") {
-    if (run.phase !== "closed") throw new AppError("마감 후 결과를 공개할 수 있습니다.", 409);
+  } else if (input.action === "reveal" || input.action === "revealAndGrade") {
+    if (input.action === "revealAndGrade" && ["live","paused"].includes(String(run.phase))) {
+      const waiting = await tx`select 1 from public.typing_team_progress where run_question_id=${id} and completed_at is null limit 1`;
+      if (waiting.length) throw new AppError("모든 팀이 완료해야 결과를 공개할 수 있습니다.", 409, "WAITING_FOR_TEAMS");
+      await tx`update public.typing_runs set paused_at=coalesce(paused_at,${relay.server_now}),closed_by=${actorId} where run_question_id=${id}`;
+    } else if (run.phase !== "closed") throw new AppError("마감 후 결과를 공개할 수 있습니다.", 409);
     const rows = await tx`select * from public.typing_team_progress where run_question_id=${id} order by result_ms nulls last`;
     const best = rows.find(row => row.result_ms != null)?.result_ms;
     for (const team of rows) {
@@ -103,7 +111,7 @@ export async function typingTransition(tx: TransactionSql, run: Record<string, u
     }
     await tx`update public.run_questions set graded_at=clock_timestamp() where id=${id}`;
   } else throw new AppError("타자 게임에서 사용할 수 없는 동작입니다.");
-  const phase = ({ pause: "paused", resume: "live", close: "closed", forceClose: "closed", reveal: "graded", startTyping: "live" } as Record<string,string>)[input.action];
+  const phase = ({ pause: "paused", resume: "live", close: "closed", forceClose: "closed", reveal: "graded", revealAndGrade: "graded", startTyping: "live" } as Record<string,string>)[input.action];
   const updated = await tx`update public.runs set phase=${phase},version=version+1 where id=${String(run.id)} returning version`;
   return { phase, version: Number(updated[0].version) };
 }

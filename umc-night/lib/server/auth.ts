@@ -29,7 +29,10 @@ export function clearTeamCookie(response: NextResponse) { response.cookies.delet
 async function hostIdentity(request: NextRequest): Promise<{ userId: string; refreshed?: Session }> {
   const client = authClient();
   const access = request.cookies.get(ACCESS)?.value;
-  let user = access ? (await client.auth.getUser(access)).data.user : null;
+  let user: { id: string } | null = null;
+  if (access) {
+    try { const verified = await client.auth.getClaims(access); if (verified.data?.claims.sub) user = { id: verified.data.claims.sub }; } catch {}
+  }
   let refreshed: Session | undefined;
   if (!user) {
     const token = request.cookies.get(REFRESH)?.value;
