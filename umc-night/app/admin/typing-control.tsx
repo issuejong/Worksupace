@@ -10,7 +10,7 @@ export function TypingControl({ state, clock, clockReady, busy, mutate }: { stat
   async function action(name: string, reason?: string) { await mutate("/api/run", { action: name, version: state.version, questionId: state.question?.id, ...(reason ? { reason } : {}) }); }
   return <><section className="card card-dark stack"><p className="section-label">TYPING RELAY</p><h2>{state.question?.prompt}</h2>
     <p>{state.question?.roundTitle} · {relay.turns}차례 · 오타 제출마다 +1초</p>
-    <p>{relay.awardWinner && !state.question?.practice ? "공동 우승 포함, 우승팀 누적 점수 +1점" : "기록 대결 · 누적 점수에는 반영하지 않음"}</p>
+    <p>{relay.awardWinner && !state.question?.practice ? `공동 우승 포함, 우승팀 누적 점수 +${state.question?.points ?? 1}점` : "기록 대결 · 누적 점수에는 반영하지 않음"}</p>
     <div className="row">{state.phase === "live" && !relay.startsAt && <button className="button button-primary" disabled={busy || !allReady || !clockReady} onClick={() => void action("startTyping")}>전 팀 동시 시작 · 5초 카운트다운</button>}
       {state.phase === "live" && relay.startsAt && <button className="button button-outline" disabled={busy || !started} onClick={() => void action("pause")}>일시정지</button>}
       {state.phase === "paused" && <button className="button button-primary" disabled={busy} onClick={() => void action("resume")}>재개</button>}

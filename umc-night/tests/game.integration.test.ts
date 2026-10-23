@@ -172,7 +172,7 @@ suite("live game against isolated PostgreSQL", () => {
     const spareQuestion = await changeSetup({ action: "question", roundId: spareRoundId, kind: "short", prompt: "임시 문제", correctAnswer: "정답", durationSeconds: 30, position: 0 });
     if (!("id" in spareQuestion)) throw new Error("Question creation failed");
     const spareQuestionId = spareQuestion.id;
-    expect((await setupState()).questions.find(question => question.id === spareQuestionId)).not.toHaveProperty("points");
+    expect((await setupState()).questions.find(question => question.id === spareQuestionId)).toHaveProperty("points", 1);
     expect((await db()`select points from public.questions where id=${spareQuestionId}`)[0].points).toBe(1);
     await changeSetup({ action: "question", id: spareQuestionId, roundId: spareRoundId, kind: "short", prompt: "수정된 문제", correctAnswer: "정답", durationSeconds: 40, position: 0 });
     expect((await setupState()).questions.find(question => question.id === spareQuestionId)?.prompt).toBe("수정된 문제");

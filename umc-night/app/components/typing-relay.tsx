@@ -14,6 +14,7 @@ export function TypingBoard({ state, clock }: { state: GameState; clock: number 
   const teams = relay.resultsVisible ? rankTyping(relay.teams) : relay.teams.map(team => ({ ...team, rank: null }));
   return <section className="typing-board stack" aria-label="타자 릴레이 팀별 현황">
     <div className="row between"><h2>{relay.voided ? "무효 처리된 게임" : relay.resultsVisible ? "타자 릴레이 결과" : "타자 릴레이"}</h2><span className="pill">{relay.turns}차례 · 오타 +1초</span></div>
+    {relay.awardWinner && !state.question?.practice && <p className="subtle small">우승팀 +{state.question?.points ?? 1}점 · 공동 우승팀 모두 적용</p>}
     {!relay.resultsVisible && !relay.voided && <Stopwatch relay={relay} clock={clock} />}
     <div className="typing-team-grid">{teams.map(team => <div className={`typing-team${team.completed ? " complete" : ""}`} key={team.teamId}>
       <div className="row between"><strong>{state.teams.find(value => value.id === team.teamId)?.name ?? "팀"}</strong><span className="pill">{relay.resultsVisible ? team.rank ? `${team.rank}위` : "미완료" : team.completed ? "완료" : !relay.startsAt ? team.ready ? "준비 완료" : "준비 중" : `${team.turn} / ${relay.turns}`}</span></div>
@@ -88,7 +89,7 @@ export function TypingPlay({ state, clock, clockReady, refresh }: { state: GameS
   if (relay.resultsVisible || relay.voided) return <section className="card"><TypingBoard state={state} clock={clock} /></section>;
   return <section className="card stack typing-play">
     <div className="row between"><span className="section-label">TYPING RELAY</span><span className="pill">{Math.min(own.turn + 1, relay.turns)} / {relay.turns}번째 차례</span></div>
-    <h2>{state.question!.prompt}</h2>{!clockReady && <p className="subtle small" role="status">서버 시간 동기화 중...</p>}<Stopwatch relay={relay} own={own} clock={clock} />
+    <h2>{state.question!.prompt}</h2>{relay.awardWinner && !state.question!.practice && <p className="subtle small">우승팀 +{state.question!.points}점 · 공동 우승팀 모두 적용</p>}{!clockReady && <p className="subtle small" role="status">서버 시간 동기화 중...</p>}<Stopwatch relay={relay} own={own} clock={clock} />
     {own.completedAt ? <div className="typing-finished"><span>우리 팀 잠정 기록</span><strong>{formatTypingTime(own.resultMs!)}</strong><p>모두 수고했어요! 다른 팀의 완료를 기다려 주세요.</p></div> : <>
       <div className="typing-phrase"><span className="section-label">그대로 입력해 주세요</span><p>{phrase}</p></div>
       {!relay.startsAt ? <><p className="subtle">한 사람이 한 문장을 제출하고 폰을 넘겨주세요. 띄어쓰기·문장부호도 같아야 해요. 오타 제출마다 +1초, 고쳐서 제출하면 다음 차례로 넘어가요.</p><button className="button button-primary button-wide" disabled={busy || !clockReady || own.ready || state.phase !== "live"} onClick={() => void ready()}>{own.ready ? "준비 완료 · 진행자 시작 대기" : "준비 완료"}</button></> : <form className="stack" onSubmit={submit}>

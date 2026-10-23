@@ -105,9 +105,9 @@ export async function typingTransition(tx: TransactionSql, run: Record<string, u
     const best = rows.find(row => row.result_ms != null)?.result_ms;
     for (const team of rows) {
       const winner = best != null && team.result_ms === best;
-      const points = winner && snapshot.typing_award_winner && !snapshot.practice ? 1 : 0;
+      const points = winner && snapshot.typing_award_winner && !snapshot.practice ? snapshot.points ?? 1 : 0;
       await tx`insert into public.grades(run_question_id,team_id,correct,points) values (${id},${team.team_id},${winner},${points})`;
-      if (points) await tx`insert into public.score_entries(run_id,run_question_id,team_id,delta,reason,actor_id) values (${String(run.id)},${id},${team.team_id},1,'타자 릴레이 우승',${actorId})`;
+      if (points) await tx`insert into public.score_entries(run_id,run_question_id,team_id,delta,reason,actor_id) values (${String(run.id)},${id},${team.team_id},${points},'타자 릴레이 우승',${actorId})`;
     }
     await tx`update public.run_questions set graded_at=clock_timestamp() where id=${id}`;
   } else throw new AppError("타자 게임에서 사용할 수 없는 동작입니다.");

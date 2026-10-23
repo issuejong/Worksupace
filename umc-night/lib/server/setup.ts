@@ -13,6 +13,7 @@ const questionFields = z.object({
   correctAnswer: z.string().trim().max(120).default(""),
   answerMode: z.enum(["fixed", "live"]).default("fixed"),
   durationSeconds: z.number().int().min(5).max(300),
+  points: z.number().int().min(1).max(1000).optional(),
   scoringMode: z.enum(["all_correct", "first_correct"]).default("all_correct"),
   waitForAll: z.boolean().default(false),
   position: z.number().int().min(0).max(9999).default(0),
@@ -25,7 +26,7 @@ export async function setupState() {
   const [teams, rounds, questions] = await Promise.all([
     sql`select id,number,name from public.teams order by number`,
     sql`select id,title,position from public.rounds order by position,created_at`,
-    sql`select id,round_id,kind,prompt,options,correct_answer,answer_mode,duration_seconds,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path,typing_phrases,typing_award_winner from public.questions order by position,created_at,id`,
+    sql`select id,round_id,kind,prompt,options,correct_answer,answer_mode,duration_seconds,points,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path,typing_phrases,typing_award_winner from public.questions order by position,created_at,id`,
   ]);
   return { teams, rounds, questions };
 }
@@ -74,7 +75,7 @@ export async function changeSetup(raw: unknown) {
     return { id: rows[0].id };
   }
   if (input.action === "question") {
-    const { id, roundId, kind, prompt, options, correctAnswer, durationSeconds, position, practice, active, imageId, revealImageId } = input;
+    const { id, roundId, kind, prompt, options, correctAnswer, durationSeconds, points, position, practice, active, imageId, revealImageId } = input;
     const typing = kind === "typing";
     const phrases = typing ? input.typingPhrases.map(normalizeTyping) : [];
     if (typing && (!phrases.length || phrases.some(value => !value || [...value].length > 200 || /[\r\n\t]/.test(value)))) throw new AppError("타자 문장은 한 줄 1~200자로, 1~10차례를 등록해 주세요.");
@@ -87,8 +88,8 @@ export async function changeSetup(raw: unknown) {
     if (answerMode === "fixed" && kind !== "short" && !effectiveOptions.includes(correctAnswer)) throw new AppError("정답이 보기에 있어야 합니다.");
     const storedAnswer = answerMode === "live" ? null : correctAnswer;
     const rows = id
-      ? await sql`update public.questions set round_id=${roundId},kind=${kind},prompt=${prompt},options=${sql.json(effectiveOptions)},correct_answer=${storedAnswer},answer_mode=${answerMode},points=1,duration_seconds=${durationSeconds},scoring_mode=${scoringMode},wait_for_all=${waitForAll},position=${position},practice=${practice},active=${active},image_path=${imageId},reveal_image_path=${revealImageId},typing_phrases=${sql.json(phrases)},typing_award_winner=${typing && input.typingAwardWinner} where id=${id} returning id`
-      : await sql`insert into public.questions(round_id,kind,prompt,options,correct_answer,answer_mode,duration_seconds,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path,typing_phrases,typing_award_winner) values (${roundId},${kind},${prompt},${sql.json(effectiveOptions)},${storedAnswer},${answerMode},${durationSeconds},${scoringMode},${waitForAll},${position},${practice},${active},${imageId},${revealImageId},${sql.json(phrases)},${typing && input.typingAwardWinner}) returning id`;
+      ? await sql`update public.questions set round_id=${roundId},kind=${kind},prompt=${prompt},options=${sql.json(effectiveOptions)},correct_answer=${storedAnswer},answer_mode=${answerMode},points=coalesce(${points ?? null}::integer,points),duration_seconds=${durationSeconds},scoring_mode=${scoringMode},wait_for_all=${waitForAll},position=${position},practice=${practice},active=${active},image_path=${imageId},reveal_image_path=${revealImageId},typing_phrases=${sql.json(phrases)},typing_award_winner=${typing && input.typingAwardWinner} where id=${id} returning id`
+      : await sql`insert into public.questions(round_id,kind,prompt,options,correct_answer,answer_mode,duration_seconds,points,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path,typing_phrases,typing_award_winner) values (${roundId},${kind},${prompt},${sql.json(effectiveOptions)},${storedAnswer},${answerMode},${durationSeconds},${points ?? 1},${scoringMode},${waitForAll},${position},${practice},${active},${imageId},${revealImageId},${sql.json(phrases)},${typing && input.typingAwardWinner}) returning id`;
     if (!rows.length) throw new AppError("문제를 찾지 못했습니다.", 404);
     return { id: rows[0].id };
   }
