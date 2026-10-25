@@ -18,8 +18,8 @@ export function TypingBoard({ state, clock }: { state: GameState; clock: number 
     {!relay.resultsVisible && !relay.voided && <Stopwatch relay={relay} clock={clock} />}
     <div className="typing-team-grid">{teams.map(team => <div className={`typing-team${team.completed ? " complete" : ""}`} key={team.teamId}>
       <div className="row between"><strong>{state.teams.find(value => value.id === team.teamId)?.name ?? "팀"}</strong><span className="pill">{relay.resultsVisible ? team.rank ? `${team.rank}위` : "미완료" : team.completed ? "완료" : !relay.startsAt ? team.ready ? "준비 완료" : "준비 중" : `${team.turn} / ${relay.turns}`}</span></div>
-      <progress value={team.turn} max={relay.turns} aria-label="완료한 차례" />
-      {relay.resultsVisible && <><strong className="typing-result">{team.resultMs === null ? "DNF" : formatTypingTime(team.resultMs)}</strong><p className="subtle small">{team.elapsedMs === null ? `${team.turn}/${relay.turns}차례 완료` : `실제 ${formatTypingTime(team.elapsedMs)} + 벌칙 ${team.mistakes}초`}</p></>}
+      {!relay.resultsVisible && <progress value={team.turn} max={relay.turns} aria-label="완료한 차례" />}
+      {relay.resultsVisible && <><strong className="typing-result">{team.resultMs === null ? "DNF" : formatTypingTime(team.resultMs)}</strong><p className="subtle small">{team.elapsedMs === null ? `${team.turn}/${relay.turns}차례 완료` : `${formatTypingTime(team.elapsedMs)} + 벌칙 ${team.mistakes}초`}</p></>}
     </div>)}</div>
   </section>;
 }
