@@ -73,3 +73,8 @@
 .verdict-button { min-width: 76px; border: 1px solid var(--line, #e4d7ca); background: #fffdf9; color: #6b6058; }
 .verdict-correct[aria-pressed="true"] { background: #e4f1e8; border-color: #33734a; color: #245638; }
 .verdict-wrong[aria-pressed="true"] { background: #f8e4de; border-color: #ad4b32; color: #923821; }
+
+/* Group the question library by round without changing play order. */
+.question-library{scroll-margin-top:24px}.question-library-toolbar{align-items:flex-end;margin-bottom:18px}.question-library-toolbar h3{margin:0}.question-round-filter{width:min(100%,320px)}
+.question-round-group{min-width:0;padding:20px;border:1px solid var(--line);border-radius:18px;background:#fffaf3}.question-round-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.question-round-heading>div{min-width:0}.question-round-number{color:var(--deep);font-size:.7rem;font-weight:900;letter-spacing:.12em}.question-round-heading h4{margin:6px 0 0;font-size:1.2rem;letter-spacing:-.04em;overflow-wrap:anywhere}.question-round-heading .pill{flex:none}.question-round-empty{margin:18px 0 0;padding:18px;border:1px dashed var(--line);border-radius:12px;background:#fffdf9}.question-round-group .question-order-list{margin-top:18px}
+@media(max-width:760px){.question-library-toolbar{align-items:stretch;gap:16px}.question-round-filter{width:100%}.question-round-group{padding:14px}.question-round-heading h4{font-size:1.1rem}}
