@@ -301,9 +301,11 @@ export async function stateFor(view: "screen" | "team" | "host", teamId?: string
   const snapshot = rq?.snapshot as Snapshot | undefined;
   let roundBreak = false;
   let hasNextQuestion = false;
+  let nextImageUrl: string | null = null;
   if (run.phase === "lobby" || run.phase === "graded") {
-    const next = await sql`select q.round_id from public.questions q join public.rounds r on r.id=q.round_id where q.active=true and not exists (select 1 from public.run_questions played where played.run_id=${run.id} and played.question_id=q.id) order by r.position,r.created_at,q.position,q.created_at limit 1`;
+    const next = await sql`select q.round_id,q.image_path from public.questions q join public.rounds r on r.id=q.round_id where q.active=true and not exists (select 1 from public.run_questions played where played.run_id=${run.id} and played.question_id=q.id) order by r.position,r.created_at,q.position,q.created_at limit 1`;
     hasNextQuestion = next.length > 0;
+    if (view === "host" && next[0]?.image_path) nextImageUrl = `/api/media/${next[0].image_path}`;
     if (run.phase === "graded" && rq && snapshot) {
       const currentRoundId = snapshot.round_id ?? (await sql`select round_id from public.questions where id=${rq.question_id}`)[0]?.round_id;
       roundBreak = !next.length || next[0].round_id !== currentRoundId;
@@ -350,7 +352,7 @@ export async function stateFor(view: "screen" | "team" | "host", teamId?: string
       if (row.team_id) acc[id].grades.push({ teamId: row.team_id, correct: Boolean(row.correct), points: Number(row.points), answer: row.answer ?? null });
       return acc;
     }, {});
-    return { ...base, history, gradedQuestions: Object.values(gradedQuestions) };
+    return { ...base, nextImageUrl, history, gradedQuestions: Object.values(gradedQuestions) };
   }
   return base;
 }

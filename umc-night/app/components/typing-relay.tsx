@@ -88,7 +88,7 @@ export function TypingPlay({ state, clock, clockReady, refresh }: { state: GameS
   if (!own) return <section className="card"><h2>다음 게임부터 참가할 수 있어요</h2><p>이 타자 게임을 열기 전에 등록된 팀이 참여합니다.</p></section>;
   if (relay.resultsVisible || relay.voided) return <section className="card"><TypingBoard state={state} clock={clock} /></section>;
   return <section className="card stack typing-play">
-    <div className="row between"><span className="section-label">TYPING RELAY</span><span className="pill">{Math.min(own.turn + 1, relay.turns)} / {relay.turns}번째 차례</span></div>
+    <div className="row between"><span className="section-label">{state.question!.roundTitle}</span><span className="pill">{Math.min(own.turn + 1, relay.turns)} / {relay.turns}번째 차례</span></div>
     <h2>{state.question!.prompt}</h2>{relay.awardWinner && !state.question!.practice && <p className="subtle small">우승팀 +{state.question!.points}점 · 공동 우승팀 모두 적용</p>}{!clockReady && <p className="subtle small" role="status">서버 시간 동기화 중...</p>}<Stopwatch relay={relay} own={own} clock={clock} />
     {own.completedAt ? <div className="typing-finished"><span>우리 팀 잠정 기록</span><strong>{formatTypingTime(own.resultMs!)}</strong><p>모두 수고했어요! 다른 팀의 완료를 기다려 주세요.</p></div> : <>
       {clockReady && !beforeStart && <div className="typing-phrase"><span className="section-label">그대로 입력해 주세요</span><p>{phrase}</p></div>}

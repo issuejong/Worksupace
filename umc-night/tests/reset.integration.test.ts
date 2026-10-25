@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import postgres from "postgres";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { POST as joinTeam, GET as inspectSession } from "../app/api/join/route";
@@ -90,10 +91,11 @@ suite("team reset against isolated PostgreSQL", () => {
     let release!: () => void; let locked!: () => void;
     const ready = new Promise<void>(resolve => { locked = resolve; });
     const hold = new Promise<void>(resolve => { release = resolve; });
-    const blocker = db().begin(async tx => { await tx`select id from public.runs where id=${runId} for update`; locked(); await hold; });
+    const otherInstance = postgres(testUrl!, { max: 1 });
+    const blocker = otherInstance.begin(async tx => { await tx`select id from public.runs where id=${runId} for update`; locked(); await hold; });
     await ready;
     try { await expect(resetTeamsAndGames(preview.snapshot)).rejects.toMatchObject({ code: "RESET_BUSY" }); }
-    finally { release(); await blocker; }
+    finally { release(); await blocker; await otherInstance.end(); }
     expect(await resetPreview()).toEqual(preview);
     expect(await resetTeamsAndGames(preview.snapshot)).toMatchObject({ reset: true });
   });

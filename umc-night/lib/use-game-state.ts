@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { api, ApiError, type GameState } from "./client";
+import { prepareImage, preparedImage } from "./client-images";
 import { SyncedClock, type ClockSample } from "./synced-clock";
 
 export function useGameState(view: "host" | "team" | "screen") {
@@ -18,10 +19,21 @@ export function useGameState(view: "host" | "team" | "screen") {
   const lastRequest = useRef(0);
   const alive = useRef(true);
   const connected = useRef(false);
+  const nextImage = useRef<string | null>(null);
+  async function warmNextImage(value: GameState) {
+    if (view !== "host" || !value.nextImageUrl || nextImage.current === value.nextImageUrl) return;
+    nextImage.current = value.nextImageUrl;
+    const image = await prepareImage(value.nextImageUrl);
+    if (!image) { if (nextImage.current === value.nextImageUrl) nextImage.current = null; return; }
+    if (alive.current && "BroadcastChannel" in window) {
+      const channel = new BroadcastChannel("umc-night-state");
+      channel.postMessage({ type: "image-preload", path: image.path, blob: image.blob }); channel.close();
+    }
+  }
 
   function applyState(value: GameState) {
     generation.current++;
-    setState(value); setError(null);
+    setState(value); setError(null); void warmNextImage(value);
   }
   async function refresh() {
     if (!alive.current) return;
@@ -31,7 +43,7 @@ export function useGameState(view: "host" | "team" | "screen") {
     const task = (async () => {
       try {
         const value = await api<GameState>(`/api/state?view=${view}`);
-        if (alive.current && sequence === generation.current) { setState(value); setError(null); }
+        if (alive.current && sequence === generation.current) { setState(value); setError(null); void warmNextImage(value); }
       } catch (cause) {
         if (!alive.current || sequence !== generation.current) return;
         if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) setState(null);
@@ -80,7 +92,18 @@ export function useGameState(view: "host" | "team" | "screen") {
       } catch { /* Short polling remains active if Realtime cannot connect. */ }
     })();
     const channel = "BroadcastChannel" in window ? new BroadcastChannel("umc-night-state") : null;
-    if (channel) channel.onmessage = signal;
+    if (channel) {
+      channel.onmessage = event => {
+        const data = event.data;
+        if (data?.type === "image-preload") {
+          if (view === "screen" && typeof data.path === "string" && data.blob instanceof Blob) void prepareImage(data.path, data.blob);
+        } else if (data?.type === "image-cache-request") {
+          const image = view === "host" && nextImage.current ? preparedImage(nextImage.current) : null;
+          if (image) channel.postMessage({ type: "image-preload", path: image.path, blob: image.blob });
+        } else signal();
+      };
+      if (view === "screen") channel.postMessage({ type: "image-cache-request" });
+    }
     const resume = () => { if (active()) { signal(); void syncClock(); } };
     const poll = window.setInterval(() => {
       if (active() && performance.now() - lastRequest.current >= (connected.current ? 10_000 : 750)) void refresh();

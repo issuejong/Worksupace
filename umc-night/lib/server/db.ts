@@ -11,8 +11,9 @@ export function db(): Sql {
     pool = postgres(url, {
       ...(password ? { password } : {}),
       prepare: false,
-      max: 2,
-      idle_timeout: 20,
+      max: 1,
+      idle_timeout: 5,
+      max_lifetime: 60,
       connect_timeout: 10,
       ...(supabasePooler ? { ssl: "require" as const } : {}),
     });

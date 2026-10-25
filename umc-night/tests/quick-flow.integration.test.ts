@@ -74,4 +74,16 @@ suite("fast host flow and private realtime signals",()=>{
     expect(Math.abs(sample.serverSentAt-Date.now())).toBeLessThan(100);
     expect(sample.serverUncertaintyMs).toBeGreaterThanOrEqual(0);
   });
+  it("prepares only the next question photo for the host without exposing it or its answer photo to guests",async()=>{
+    await open(); const photo=randomUUID(),answerPhoto=randomUUID();
+    await db()`insert into public.questions(round_id,kind,prompt,correct_answer,image_path,reveal_image_path,position) values (${round},'short','Next photo','Name',${photo},${answerPhoto},1)`;
+    await quick();
+    expect(await stateFor("host")).toMatchObject({nextImageUrl:`/api/media/${photo}`});
+    expect(JSON.stringify(await stateFor("host"))).not.toContain(answerPhoto);
+    for(const state of [await stateFor("screen"),await stateFor("team",a)]){
+      expect(state).not.toHaveProperty("nextImageUrl");
+      expect(JSON.stringify(state)).not.toContain(photo);
+      expect(JSON.stringify(state)).not.toContain(answerPhoto);
+    }
+  });
 });

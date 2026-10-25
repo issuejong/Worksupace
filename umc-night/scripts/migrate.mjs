@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import postgres from "postgres";
+import { migrationDatabaseUrl } from "./database-url.mjs";
 
 if (process.env.VERCEL_ENV !== "production") {
   console.log("Database migrations skipped outside Vercel production.");
@@ -13,7 +14,7 @@ if (!url) {
 
 const migrations = ["202610150001_qr_join.sql", "202610150002_team_transfer.sql", "202610160001_question_rules.sql", "202610190001_live_answers.sql", "202610200001_correct_counts.sql", "202610230001_typing_relay.sql", "202610230002_live_sync.sql", "202610240001_configurable_points.sql", "202610250001_manual_verdicts.sql"];
 
-const connection = postgres(url, {
+const connection = postgres(migrationDatabaseUrl(url), {
   ...(process.env.DATABASE_PASSWORD
     ? { password: process.env.DATABASE_PASSWORD }
     : {}),
