@@ -69,3 +69,7 @@
 
 .question-image-upload{padding:18px;border:1px solid var(--line);border-radius:16px;background:#fffaf3;gap:12px;min-width:0}.question-image-upload h3{margin:0;font-size:1rem}.question-image-preview{display:block;width:100%;height:220px;object-fit:contain;border-radius:12px;background:#eee6dc}.question-image-empty{min-height:140px;display:grid;place-items:center;text-align:center;padding:20px;border:1px dashed #d8cbbd;border-radius:12px;color:var(--muted);font-size:.86rem}.question-image-upload .subtle{margin:0}.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .screen-stage:not(:has(.screen-options)):not(:has(.screen-team-answers)) .screen-question-image{max-height:38vh;width:min(100%,900px)}
+.manual-verdict { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.verdict-button { min-width: 76px; border: 1px solid var(--line, #e4d7ca); background: #fffdf9; color: #6b6058; }
+.verdict-correct[aria-pressed="true"] { background: #e4f1e8; border-color: #33734a; color: #245638; }
+.verdict-wrong[aria-pressed="true"] { background: #f8e4de; border-color: #ad4b32; color: #923821; }

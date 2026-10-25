@@ -7,7 +7,7 @@ import { initializeTyping, typingState, typingTransition } from "./typing";
 export type Phase = "lobby" | "live" | "paused" | "closed" | "revealed" | "graded" | "finished";
 export type Kind = "short" | "choice" | "ox" | "typing";
 export type ScoringMode = "all_correct" | "first_correct";
-export type AnswerMode = "fixed" | "live";
+export type AnswerMode = "fixed" | "live" | "manual";
 export interface Snapshot extends Record<string, string | number | boolean | string[] | null> {
   typing_phrases: string[];
   typing_award_winner: boolean;
@@ -59,7 +59,7 @@ export async function startRun(mode: "rehearsal" | "event") {
   });
 }
 
-export async function transitionRun(input: { action: "start" | "pause" | "resume" | "close" | "reveal" | "void" | "finish" | "startTyping" | "forceClose" | "revealAndGrade" | "showRoundResults"; version: number; answer?: string; reason?: string; verdicts?: Record<string, boolean>; questionId?: string; }, actorId: string) {
+export async function transitionRun(input: { action: "start" | "pause" | "resume" | "close" | "reveal" | "void" | "finish" | "startTyping" | "forceClose" | "revealAndGrade" | "showRoundResults"; version: number; answer?: string; reason?: string; verdicts?: Record<string, boolean>; answerVersions?: Record<string, number>; questionId?: string; }, actorId: string) {
   return db().begin(async tx => {
     const rows = await tx`select * from public.runs where phase <> 'finished' order by created_at desc limit 1 for update`;
     if (!rows.length) throw new AppError("진행할 게임을 먼저 생성해 주세요.", 409, "NO_RUN");
@@ -120,8 +120,8 @@ export async function transitionRun(input: { action: "start" | "pause" | "resume
         if (snapshot.kind !== "short" && !snapshot.options.includes(answer)) throw new AppError("보기 중에서 정답을 선택해 주세요.", 400, "ANSWER_INVALID");
         await tx`update public.run_questions set selected_answer=${answer} where id=${rq.id}`;
       }
-      if (!answer) throw new AppError("정답을 확인해 주세요.", 400, "ANSWER_REQUIRED");
-      await gradeAnswers(tx, String(run.id), String(rq.id), snapshot, answer, actorId, input.verdicts ?? {});
+      if (!answer && snapshot.answer_mode !== "manual") throw new AppError("정답을 확인해 주세요.", 400, "ANSWER_REQUIRED");
+      await gradeAnswers(tx, String(run.id), String(rq.id), snapshot, answer ?? "", actorId, input.verdicts ?? {}, input.answerVersions);
       const updated = await tx`update public.runs set phase='graded',round_results_pending=true,deadline_at=null,remaining_seconds=0,version=version+1 where id=${run.id} returning version`;
       return { phase: "graded", version: Number(updated[0].version) };
     }
@@ -220,13 +220,19 @@ export async function submitAnswer(teamId: string, input: { value: string; reque
 }
 
 
-async function gradeAnswers(tx: TransactionSql, runId: string, questionId: string, snapshot: Snapshot, correctAnswer: string, actorId: string, verdicts: Record<string, boolean>) {
+async function gradeAnswers(tx: TransactionSql, runId: string, questionId: string, snapshot: Snapshot, correctAnswer: string, actorId: string, verdicts: Record<string, boolean>, answerVersions: Record<string, number> = {}) {
     const teams = await tx`select id from public.teams order by number`;
-    const answers = await tx`select team_id,value from public.answers where run_question_id=${questionId} order by updated_at,team_id`;
+    const answers = await tx`select team_id,value,version from public.answers where run_question_id=${questionId} order by updated_at,team_id`;
+    if (snapshot.answer_mode === "manual") {
+      for (const answer of answers) {
+        if (typeof verdicts[answer.team_id] !== "boolean") throw new AppError("제출한 모든 팀의 정답·오답을 선택해 주세요.", 409, "VERDICTS_REQUIRED");
+        if (answerVersions[answer.team_id] !== Number(answer.version)) throw new AppError("팀이 답안을 수정했습니다. 바뀐 답안을 확인하고 다시 판정해 주세요.", 409, "STALE_VERDICT");
+      }
+    }
     const answerMap = new Map(answers.map(a => [a.team_id as string, a.value as string]));
     const correctTeams = new Set(teams.filter(team => {
       const answer = answerMap.get(team.id);
-      return Boolean(answer && (snapshot.kind === "short" ? (verdicts[team.id] ?? quizAnswerMatches(answer, correctAnswer)) : answer === correctAnswer));
+      return Boolean(answer && (snapshot.answer_mode === "manual" ? verdicts[team.id] === true : snapshot.kind === "short" ? (verdicts[team.id] ?? quizAnswerMatches(answer, correctAnswer)) : answer === correctAnswer));
     }).map(team => String(team.id)));
     const firstCorrectId = answers.find(answer => correctTeams.has(String(answer.team_id)))?.team_id;
     for (const team of teams) {
@@ -238,7 +244,7 @@ async function gradeAnswers(tx: TransactionSql, runId: string, questionId: strin
     await tx`update public.run_questions set graded_at=now() where id=${questionId}`;
 }
 
-export async function gradeCurrent(actorId: string, version: number, verdicts: Record<string, boolean>) {
+export async function gradeCurrent(actorId: string, version: number, verdicts: Record<string, boolean>, answerVersions: Record<string, number> = {}) {
   return db().begin(async tx => {
     const runs = await tx`select * from public.runs where phase <> 'finished' order by created_at desc limit 1 for update`;
     const run = runs[0];
@@ -251,8 +257,8 @@ export async function gradeCurrent(actorId: string, version: number, verdicts: R
     const snapshot = rq[0].snapshot as Snapshot;
     if (snapshot.kind === "typing") throw new AppError("타자 게임은 결과 공개 시 자동 확정됩니다.", 409);
     const correctAnswer = snapshot.answer_mode === "live" ? rq[0].selected_answer as string | null : snapshot.correct_answer;
-    if (!correctAnswer) throw new AppError("정답을 확정한 뒤 채점해 주세요.", 409, "ANSWER_REQUIRED");
-    await gradeAnswers(tx, String(run.id), String(rq[0].id), snapshot, correctAnswer, actorId, verdicts);
+    if (!correctAnswer && snapshot.answer_mode !== "manual") throw new AppError("정답을 확정한 뒤 채점해 주세요.", 409, "ANSWER_REQUIRED");
+    await gradeAnswers(tx, String(run.id), String(rq[0].id), snapshot, correctAnswer ?? "", actorId, verdicts, answerVersions);
     const updated = await tx`update public.runs set phase='graded',version=version+1 where id=${run.id} returning version`;
     return { phase: "graded", version: updated[0].version, duplicate: false };
   });
@@ -329,7 +335,7 @@ export async function stateFor(view: "screen" | "team" | "host", teamId?: string
     serverNow: new Date().toISOString(), deadlineAt: run.deadline_at as Date | null,
     remainingSeconds: run.remaining_seconds as number | null, question,
     requiredTeamIds: snapshot?.required_team_ids ?? [],
-    teams: publicTeams.map(t => ({ ...t, submitted: answerMap.has(t.id), required: snapshot?.wait_for_all ? snapshot.required_team_ids.includes(t.id) : false, ...((view === "host" || screenAnswersVisible) ? { answer: answerMap.get(t.id)?.value ?? null } : {}), ...(view === "host" ? { correct: answerMap.get(t.id)?.correct ?? null, earned: answerMap.get(t.id)?.points ?? 0 } : {}) })),
+    teams: publicTeams.map(t => ({ ...t, submitted: answerMap.has(t.id), required: snapshot?.wait_for_all ? snapshot.required_team_ids.includes(t.id) : false, ...((view === "host" || screenAnswersVisible) ? { answer: answerMap.get(t.id)?.value ?? null } : {}), ...(view === "host" ? { answerVersion: answerMap.get(t.id)?.version ?? null } : {}), ...((view === "host" || (snapshot?.answer_mode === "manual" && run.phase === "graded" && (view === "screen" || t.id === teamId))) ? { correct: answerMap.get(t.id)?.correct ?? null, earned: answerMap.get(t.id)?.points ?? 0 } : {}) })),
   };
   if (view === "team") {
     const own = answerMap.get(teamId ?? "");
