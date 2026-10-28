@@ -24,6 +24,8 @@ export interface Snapshot extends Record<string, string | number | boolean | str
   required_team_ids: string[];
   image_path: string | null;
   reveal_image_path: string | null;
+  youtube_video_id: string | null;
+  youtube_start_seconds: number;
   round_id: string;
   round_title: string;
 }
@@ -41,6 +43,8 @@ function snapshotOf(row: Record<string, unknown>): Snapshot {
     wait_for_all: Boolean(row.wait_for_all), required_team_ids: [],
     image_path: row.image_path ? String(row.image_path) : null,
     reveal_image_path: row.reveal_image_path ? String(row.reveal_image_path) : null,
+    youtube_video_id: row.youtube_video_id ? String(row.youtube_video_id) : null,
+    youtube_start_seconds: Number(row.youtube_start_seconds ?? 0),
     round_id: String(row.round_id), round_title: String(row.round_title),
   };
 }
@@ -325,6 +329,7 @@ export async function stateFor(view: "screen" | "team" | "host", teamId?: string
     roundTitle: snapshot.round_title,
     imageUrl: snapshot.image_path ? `/api/media/${snapshot.image_path}` : null,
     revealImageUrl: revealed && snapshot.reveal_image_path ? `/api/media/${snapshot.reveal_image_path}` : null,
+    youtube: view !== "team" && !revealed && snapshot.youtube_video_id ? { videoId: snapshot.youtube_video_id, startSeconds: snapshot.youtube_start_seconds ?? 0 } : null,
     ...((revealed || view === "host") && correctAnswer != null ? { correctAnswer } : {}),
   } : null;
   const answerRows = rq ? await sql`select a.team_id,a.value,a.version,g.correct,g.points from public.answers a left join public.grades g on g.run_question_id=a.run_question_id and g.team_id=a.team_id where a.run_question_id=${rq.id}` : [];

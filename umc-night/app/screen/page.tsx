@@ -4,6 +4,7 @@ import QRCode from "qrcode";
 import { formatPhase, rankTeams, secondsLeft, type GameState } from "../../lib/client";
 import { TypingBoard } from "../components/typing-relay";
 import { GameImage } from "../components/game-image";
+import { YouTubeVideo } from "../components/youtube-video";
 import { useGameState } from "../../lib/use-game-state";
 
 function TeamAnswerBoard({ state }: { state: GameState }) {
@@ -40,6 +41,7 @@ export default function ScreenPage() {
           {state.question.correctAnswer ? <div className="result-answer">{state.question.correctAnswer}</div> : !state.question.revealImageUrl && state.question.answerMode === "manual" && <h2>{state.phase === "graded" ? "팀별 판정 완료" : "진행자 판정 중"}</h2>}
           {!state.question.revealImageUrl && state.teamAnswersVisible && <TeamAnswerBoard state={state} />}
         </section> : <><p className="question-text">{state.question.prompt}</p>{state.question.imageUrl && <GameImage key={`${state.question.id}:question`} className="question-image screen-question-image" src={state.question.imageUrl} alt="문제 이미지" />}
+          {state.question.youtube && <YouTubeVideo key={state.question.id} video={state.question.youtube} />}
           {state.question.kind !== "short" && <div className="screen-options" role="list" aria-label="선택지">{state.question.options.map((option, index) => <div className="screen-option" role="listitem" key={`${index}-${option}`}><span className="screen-option-number" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span><span className="screen-option-text">{option}</span></div>)}</div>}
           {state.phase === "live" || state.phase === "paused" ? <>{left !== null && <div className="timer">{left}s</div>}<p>{state.question.waitForAll ? state.teams.filter(team => team.required && team.submitted).length : state.teams.filter(team => team.submitted).length} / {state.question.waitForAll ? state.teams.filter(team => team.required).length : state.teams.length}팀 제출{state.question.waitForAll ? " · 전원 제출 후 마감" : ""}</p></> : state.phase === "closed" && <h2>답변 마감! 정답은?</h2>}
         </>}</> : <h1>잠시만 기다려 주세요</h1>}

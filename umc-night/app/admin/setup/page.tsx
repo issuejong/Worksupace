@@ -4,17 +4,23 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../../../lib/client";
 import { TeamReset } from "../team-reset";
 import { QuestionImage } from "../question-image";
+import { YouTubeVideo } from "../../components/youtube-video";
+import { formatVideoTime, parseYouTubeVideo } from "../../../lib/youtube";
 import { prepareQuizImage } from "../../../lib/quiz-image";
 
 interface SetupTeam { id: string; number: number; name: string; }
 interface Round { id: string; title: string; position: number; }
-interface SetupQuestion { id: string; round_id: string; kind: "short" | "choice" | "ox" | "typing"; typing_phrases: string[]; typing_award_winner: boolean; prompt: string; options: string[]; correct_answer: string | null; answer_mode: "fixed" | "live" | "manual"; duration_seconds: number; points: number; scoring_mode: "all_correct" | "first_correct"; wait_for_all: boolean; position: number; practice: boolean; active: boolean; image_path: string | null; reveal_image_path: string | null; }
+interface SetupQuestion { id: string; round_id: string; kind: "short" | "choice" | "ox" | "typing"; typing_phrases: string[]; typing_award_winner: boolean; prompt: string; options: string[]; correct_answer: string | null; answer_mode: "fixed" | "live" | "manual"; duration_seconds: number; points: number; scoring_mode: "all_correct" | "first_correct"; wait_for_all: boolean; position: number; practice: boolean; active: boolean; image_path: string | null; reveal_image_path: string | null; youtube_video_id: string | null; youtube_start_seconds: number; }
 interface Setup { teams: SetupTeam[]; rounds: Round[]; questions: SetupQuestion[]; }
-const blank = { id: "", roundId: "", kind: "short" as SetupQuestion["kind"], prompt: "", options: "", typingPhrases: ["", "", "", "", ""], typingAwardWinner: false, correctAnswer: "", answerMode: "manual" as SetupQuestion["answer_mode"], durationSeconds: 45, points: 1, scoringMode: "all_correct" as SetupQuestion["scoring_mode"], waitForAll: false, position: 0, practice: false, active: true, imageId: null as string | null, revealImageId: null as string | null };
+const blank = { youtubeUrl: "", youtubeStart: "", id: "", roundId: "", kind: "short" as SetupQuestion["kind"], prompt: "", options: "", typingPhrases: ["", "", "", "", ""], typingAwardWinner: false, correctAnswer: "", answerMode: "manual" as SetupQuestion["answer_mode"], durationSeconds: 45, points: 1, scoringMode: "all_correct" as SetupQuestion["scoring_mode"], waitForAll: false, position: 0, practice: false, active: true, imageId: null as string | null, revealImageId: null as string | null };
 export default function SetupPage() {
   const [setup, setSetup] = useState<Setup | null>(null); const [error, setError] = useState(""); const [loadError, setLoadError] = useState(""); const [notice, setNotice] = useState(""); const [busy, setBusy] = useState(false);
   const [roundTitle, setRoundTitle] = useState(""); const [roundId, setRoundId] = useState(""); const [roundPosition, setRoundPosition] = useState(0);
   const [teamId, setTeamId] = useState(""); const [teamName, setTeamName] = useState(""); const [question, setQuestion] = useState(blank);
+  const [videoPreview, setVideoPreview] = useState(false);
+  useEffect(() => { setVideoPreview(false); }, [question.youtubeUrl, question.youtubeStart, question.id]);
+  let previewVideo = null; let videoError = "";
+  try { previewVideo = parseYouTubeVideo(question.youtubeUrl, question.youtubeStart); } catch (cause) { videoError = cause instanceof Error ? cause.message : "영상 설정을 확인해 주세요."; }
   const [questionRoundFilter, setQuestionRoundFilter] = useState("");
   const questionListRef = useRef<HTMLElement>(null);
   const [draggedQuestionId, setDraggedQuestionId] = useState<string | null>(null);
@@ -49,13 +55,15 @@ export default function SetupPage() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "이미지 업로드에 실패했습니다."); }
     finally { setBusy(false); }
   }
-  function edit(value: SetupQuestion) { setQuestion({ id: value.id, roundId: value.round_id, kind: value.kind, typingPhrases: value.typing_phrases?.length ? value.typing_phrases : ["", "", "", "", ""], typingAwardWinner: value.typing_award_winner ?? false, prompt: value.prompt, options: value.options.join("\n"), correctAnswer: value.correct_answer ?? "", answerMode: value.answer_mode, durationSeconds: value.duration_seconds, points: value.points ?? 1, scoringMode: value.scoring_mode, waitForAll: value.wait_for_all, position: value.position, practice: value.practice, active: value.active, imageId: value.image_path, revealImageId: value.reveal_image_path }); questionFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  function edit(value: SetupQuestion) { setQuestion({ id: value.id, roundId: value.round_id, kind: value.kind, typingPhrases: value.typing_phrases?.length ? value.typing_phrases : ["", "", "", "", ""], typingAwardWinner: value.typing_award_winner ?? false, prompt: value.prompt, options: value.options.join("\n"), correctAnswer: value.correct_answer ?? "", answerMode: value.answer_mode, durationSeconds: value.duration_seconds, points: value.points ?? 1, scoringMode: value.scoring_mode, waitForAll: value.wait_for_all, position: value.position, practice: value.practice, active: value.active, imageId: value.image_path, revealImageId: value.reveal_image_path, youtubeUrl: value.youtube_video_id ? `https://youtu.be/${value.youtube_video_id}` : "", youtubeStart: value.youtube_video_id ? formatVideoTime(value.youtube_start_seconds ?? 0) : "" }); questionFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }
   function editRound(value: Round) { setRoundId(value.id); setRoundTitle(value.title); setRoundPosition(value.position); }
   function clearRound() { setRoundId(""); setRoundTitle(""); setRoundPosition(0); }
   function editTeam(value: SetupTeam) { setTeamId(value.id); setTeamName(value.name); }
   function clearTeam() { setTeamId(""); setTeamName(""); }
   async function saveQuestion(event: React.FormEvent) {
-    event.preventDefault(); const { id, options, ...rest } = question;
+    event.preventDefault();
+    if (question.kind !== "typing" && videoError) { setError(videoError); return; }
+    const { id, options, ...rest } = question;
     const saved = await mutate({ action: "question", ...(id ? { id } : {}), ...rest, options: options.split("\n").map(item => item.trim()).filter(Boolean) });
     if (saved) setQuestion({ ...blank, roundId: question.roundId });
   }
@@ -123,6 +131,7 @@ export default function SetupPage() {
         <label><input type="checkbox" checked={question.waitForAll} onChange={event => setQuestion({ ...question, waitForAll: event.target.checked })} /> 시작 당시 모든 팀이 제출해야 마감 가능 · 시간 제한 없음</label>
         <div className="grid"><QuestionImage label="문제 사진" description="눈·코·입만 잘라둔 사진을 올려 주세요. 문제를 시작하면 현장 화면과 참가자 휴대폰에 표시됩니다." imageId={question.imageId} disabled={busy} onUpload={file => upload(file, "imageId")} onRemove={() => setQuestion({ ...question, imageId: null })} /><QuestionImage label="정답 공개 사진 · 선택" description="전체 얼굴이나 원본 사진을 올려 주세요. 진행자가 정답을 공개할 때만 참가자에게 표시됩니다." imageId={question.revealImageId} disabled={busy} onUpload={file => upload(file, "revealImageId")} onRemove={() => setQuestion({ ...question, revealImageId: null })} /></div>
         <p className="subtle small">사진을 올리거나 연결 해제한 뒤 아래 문제 추가·수정 버튼을 눌러야 저장됩니다.</p>
+        <section className="question-video-editor stack" aria-label="유튜브 영상 설정"><h3>유튜브 영상 · 선택</h3><p className="subtle small">현장 화면에서 재생합니다. 참가자 휴대폰에서는 답안만 제출합니다.</p><div className="grid"><label className="field">유튜브 링크<input type="url" value={question.youtubeUrl} maxLength={2048} placeholder="https://youtu.be/..." onChange={event => setQuestion({ ...question, youtubeUrl: event.target.value })} /></label><label className="field">재생 시작 시간<input type="text" value={question.youtubeStart} maxLength={30} placeholder="예: 1:20 또는 80" onChange={event => setQuestion({ ...question, youtubeStart: event.target.value })} /><span className="subtle small">비워 두면 링크의 시작 시간 적용 · 없으면 0:00</span></label></div>{videoError && <p className="error">{videoError}</p>}{previewVideo && <><div className="row"><span className="pill">{formatVideoTime(previewVideo.startSeconds)}부터 재생</span><button type="button" className="button button-small button-plain" onClick={() => setVideoPreview(value => !value)}>{videoPreview ? "미리보기 닫기" : "영상 미리보기"}</button><button type="button" className="button button-small button-danger" onClick={() => setQuestion({ ...question, youtubeUrl: "", youtubeStart: "" })}>영상 연결 해제</button></div>{videoPreview && <YouTubeVideo key={`${previewVideo.videoId}:${previewVideo.startSeconds}`} video={previewVideo} />}</>}<p className="subtle small">문제를 저장하면 적용됩니다. 현장 화면에서 영상 재생을 누르면 설정한 시간부터 시작하며, 퀴즈 제한 시간은 문제 시작부터 흐릅니다.</p></section>
         </>}
         <label className="field">{question.kind === "typing" ? "우승팀 배점 · 점" : "정답 배점 · 점"}<input type="number" min={1} max={1000} step={1} value={question.points} onChange={event => setQuestion({ ...question, points: Number(event.target.value) })} disabled={question.kind === "typing" && !question.typingAwardWinner} required /></label>
         <p className="subtle small">1~1,000점으로 설정합니다. 타자 릴레이는 우승팀 점수 반영을 켜면 적용됩니다. 문제를 시작한 뒤 수정한 배점은 다음 실행부터 적용됩니다.</p>

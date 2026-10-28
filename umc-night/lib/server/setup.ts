@@ -2,6 +2,7 @@ import { z } from "zod";
 import { db } from "./db";
 import { AppError } from "./errors";
 import { normalizeTyping } from "../typing";
+import { parseYouTubeVideo } from "../youtube";
 
 const uuid = z.uuid();
 const questionFields = z.object({
@@ -19,6 +20,8 @@ const questionFields = z.object({
   position: z.number().int().min(0).max(9999).default(0),
   practice: z.boolean().default(false), active: z.boolean().default(true),
   imageId: uuid.nullable().default(null), revealImageId: uuid.nullable().default(null),
+  youtubeUrl: z.string().trim().max(2048).default(""),
+  youtubeStart: z.string().trim().max(30).default(""),
 });
 
 export async function setupState() {
@@ -26,7 +29,7 @@ export async function setupState() {
   const [teams, rounds, questions] = await Promise.all([
     sql`select id,number,name from public.teams order by number`,
     sql`select id,title,position from public.rounds order by position,created_at`,
-    sql`select id,round_id,kind,prompt,options,correct_answer,answer_mode,duration_seconds,points,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path,typing_phrases,typing_award_winner from public.questions order by position,created_at,id`,
+    sql`select id,round_id,kind,prompt,options,correct_answer,answer_mode,duration_seconds,points,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path,youtube_video_id,youtube_start_seconds,typing_phrases,typing_award_winner from public.questions order by position,created_at,id`,
   ]);
   return { teams, rounds, questions };
 }
@@ -77,6 +80,9 @@ export async function changeSetup(raw: unknown) {
   if (input.action === "question") {
     const { id, roundId, kind, prompt, options, correctAnswer, durationSeconds, points, position, practice, active, imageId, revealImageId } = input;
     const typing = kind === "typing";
+    let video;
+    try { video = typing ? null : parseYouTubeVideo(input.youtubeUrl, input.youtubeStart); }
+    catch (cause) { throw new AppError(cause instanceof Error ? cause.message : "유튜브 설정을 확인해 주세요."); }
     const phrases = typing ? input.typingPhrases.map(normalizeTyping) : [];
     if (typing && (!phrases.length || phrases.some(value => !value || [...value].length > 200 || /[\r\n\t]/.test(value)))) throw new AppError("타자 문장은 한 줄 1~200자로, 1~10차례를 등록해 주세요.");
     const answerMode = typing ? "live" : input.answerMode;
@@ -89,8 +95,8 @@ export async function changeSetup(raw: unknown) {
     if (answerMode === "fixed" && kind !== "short" && !effectiveOptions.includes(correctAnswer)) throw new AppError("정답이 보기에 있어야 합니다.");
     const storedAnswer = answerMode === "live" || !correctAnswer ? null : correctAnswer;
     const rows = id
-      ? await sql`update public.questions set round_id=${roundId},kind=${kind},prompt=${prompt},options=${sql.json(effectiveOptions)},correct_answer=${storedAnswer},answer_mode=${answerMode},points=coalesce(${points ?? null}::integer,points),duration_seconds=${durationSeconds},scoring_mode=${scoringMode},wait_for_all=${waitForAll},position=${position},practice=${practice},active=${active},image_path=${imageId},reveal_image_path=${revealImageId},typing_phrases=${sql.json(phrases)},typing_award_winner=${typing && input.typingAwardWinner} where id=${id} returning id`
-      : await sql`insert into public.questions(round_id,kind,prompt,options,correct_answer,answer_mode,duration_seconds,points,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path,typing_phrases,typing_award_winner) values (${roundId},${kind},${prompt},${sql.json(effectiveOptions)},${storedAnswer},${answerMode},${durationSeconds},${points ?? 1},${scoringMode},${waitForAll},${position},${practice},${active},${imageId},${revealImageId},${sql.json(phrases)},${typing && input.typingAwardWinner}) returning id`;
+      ? await sql`update public.questions set round_id=${roundId},kind=${kind},prompt=${prompt},options=${sql.json(effectiveOptions)},correct_answer=${storedAnswer},answer_mode=${answerMode},points=coalesce(${points ?? null}::integer,points),duration_seconds=${durationSeconds},scoring_mode=${scoringMode},wait_for_all=${waitForAll},position=${position},practice=${practice},active=${active},image_path=${imageId},reveal_image_path=${revealImageId},youtube_video_id=${video?.videoId ?? null},youtube_start_seconds=${video?.startSeconds ?? 0},typing_phrases=${sql.json(phrases)},typing_award_winner=${typing && input.typingAwardWinner} where id=${id} returning id`
+      : await sql`insert into public.questions(round_id,kind,prompt,options,correct_answer,answer_mode,duration_seconds,points,scoring_mode,wait_for_all,position,practice,active,image_path,reveal_image_path,youtube_video_id,youtube_start_seconds,typing_phrases,typing_award_winner) values (${roundId},${kind},${prompt},${sql.json(effectiveOptions)},${storedAnswer},${answerMode},${durationSeconds},${points ?? 1},${scoringMode},${waitForAll},${position},${practice},${active},${imageId},${revealImageId},${video?.videoId ?? null},${video?.startSeconds ?? 0},${sql.json(phrases)},${typing && input.typingAwardWinner}) returning id`;
     if (!rows.length) throw new AppError("문제를 찾지 못했습니다.", 404);
     return { id: rows[0].id };
   }

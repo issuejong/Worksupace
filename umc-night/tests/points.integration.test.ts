@@ -103,7 +103,7 @@ suite("configurable point awards against isolated PostgreSQL", () => {
     await db()`drop table if exists public.umc_schema_migrations`;
     const runMigration = () => promisify(execFile)(process.execPath,["scripts/migrate.mjs"],{env:{...process.env,DATABASE_URL:testUrl!,DATABASE_PASSWORD:"",VERCEL_ENV:"production"}});
     await runMigration(); expect(await records()).toEqual(before);
-    expect(Number((await db()`select count(*) as count from public.umc_schema_migrations`)[0].count)).toBe(9);
+    expect(Number((await db()`select count(*) as count from public.umc_schema_migrations`)[0].count)).toBe(10);
     await runMigration(); expect(await records()).toEqual(before); expect(await totals()).toEqual([0,5]);
   });
 });

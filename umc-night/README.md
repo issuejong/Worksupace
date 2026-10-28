@@ -34,7 +34,7 @@ npm run dev
 
 `DATABASE_URL`, `DATABASE_PASSWORD`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`에 본인 Supabase 프로젝트 값을 넣어야 데이터 기능이 동작합니다. `DATABASE_URL`은 Supabase Postgres **Session pooler** 연결 문자열(포트 5432)에서 비밀번호 부분을 뺀 값이며, `DATABASE_PASSWORD`는 프로젝트 생성 때 정한 비밀번호를 그대로 넣습니다. 환경변수에는 `NEXT_PUBLIC_` 접두어를 붙이지 않습니다. 실시간 연결에 필요한 프로젝트 URL과 공개용 키만 `/api/live`를 통해 브라우저에 제공하며, DB 연결 정보와 서비스 비밀 키는 서버에만 보관합니다. `.env.local`은 커밋하지 않습니다.
 
-1. Supabase 무료 프로젝트를 생성하고 SQL Editor에서 `supabase/migrations/202610140001_init.sql`, `supabase/migrations/202610150001_qr_join.sql`, `supabase/migrations/202610150002_team_transfer.sql`, `supabase/migrations/202610160001_question_rules.sql`, `supabase/migrations/202610190001_live_answers.sql`, `supabase/migrations/202610200001_correct_counts.sql`, `supabase/migrations/202610230001_typing_relay.sql`, `supabase/migrations/202610230002_live_sync.sql`, `supabase/migrations/202610240001_configurable_points.sql` 순서로 실행합니다. `quiz-media` 비공개 Storage 버킷도 생성됩니다.
+1. Supabase 무료 프로젝트를 생성하고 SQL Editor에서 `supabase/migrations/202610140001_init.sql`, `supabase/migrations/202610150001_qr_join.sql`, `supabase/migrations/202610150002_team_transfer.sql`, `supabase/migrations/202610160001_question_rules.sql`, `supabase/migrations/202610190001_live_answers.sql`, `supabase/migrations/202610200001_correct_counts.sql`, `supabase/migrations/202610230001_typing_relay.sql`, `supabase/migrations/202610230002_live_sync.sql`, `supabase/migrations/202610240001_configurable_points.sql`, `supabase/migrations/202610250001_manual_verdicts.sql`, `supabase/migrations/202610290001_youtube_questions.sql` 순서로 실행합니다. `quiz-media` 비공개 Storage 버킷도 생성됩니다.
 2. Supabase Authentication에서 진행자 계정을 만듭니다. 해당 사용자의 UUID를 확인하고 SQL Editor에서 `insert into public.host_users(user_id) values ('사용자-UUID');`를 실행합니다.
    - 아이디로 로그인할 계정은 Supabase Auth에 `아이디@umc-night.invalid` 형식으로 등록하고 이메일을 자동 확인 처리합니다. 아이디는 영문·숫자·밑줄 3~32자이며 소문자로 저장합니다. `/admin`에서는 아이디만 입력할 수 있고, 기존 이메일 계정도 그대로 로그인할 수 있습니다. 이 별칭 주소로는 메일을 받을 수 없으므로 비밀번호 재설정은 Supabase 관리자가 처리합니다. 비밀번호는 코드나 문서에 저장하지 않습니다.
 3. `npm run dev`로 실행한 뒤 `/admin`에서 로그인합니다. `/screen`의 QR을 띄우면 팀 대표가 `/join`으로 접속해 이름을 입력하고 자동 등록합니다. 한 팀당 대표 기기 하나를 사용하며, 같은 이름은 중복 등록할 수 없습니다.
@@ -114,3 +114,11 @@ Vercel의 각 서버 인스턴스는 DB 연결을 최대 1개 유지하고, 5초
 ### 현장 사진 전환
 
 같은 브라우저에서 진행자 화면과 현장 화면을 함께 열면, 문제 채점 이후 다음 문제의 **문제용 사진**을 메모리에 미리 읽고 해독해 현장 화면에 전달합니다. 다음 사진 주소는 진행자 응답에만 포함되며 정답용 사진은 사전 전달하지 않습니다. 사진을 디스크 캐시에 저장하거나 서버의 공개 전 이미지 접근 제한을 완화하지 않습니다. 다른 기기나 미리 읽기에 실패한 경우에는 일반 로딩으로 전환하고, 이전 문제의 사진이 남지 않도록 이미지 요소를 새로 만듭니다.
+
+### 유튜브 영상 문제
+
+`행사 준비 → 문제 편집 → 유튜브 영상`에 영상 링크와 **재생 시작 시간**을 입력합니다. `1:20`, `80`, `1:02:03`을 사용할 수 있으며, 비워 두면 공유 링크의 `t` 또는 `start` 값을 읽습니다. 링크에 시간이 없으면 처음부터 재생합니다. 별도로 입력한 시간이 링크의 시간보다 우선하며, `0`으로 입력하면 처음부터 시작합니다. 미리보기로 확인한 뒤 문제를 저장합니다.
+
+문제를 시작한 뒤 **현장 화면에서 영상 재생**을 누르면 해당 구간부터 재생합니다. 플레이어에서 일시정지·재생할 수 있고 **설정 구간부터 다시 재생**으로 되돌릴 수 있습니다. 참가자 휴대폰에는 영상을 넣지 않아 소리가 겹치지 않습니다. 정답 공개나 다음 문제 이동 시 기존 영상은 사라집니다. 기존 퀴즈 타이머는 영상 버튼과 별개로 문제 시작 시부터 흐르므로, 영상을 보며 충분히 답변하게 하려면 **전원 제출 대기**를 선택합니다.
+
+영상 파일은 저장하지 않고 YouTube 임베드 플레이어를 사용합니다. 자동재생이 차단되면 플레이어의 재생 버튼을 직접 누릅니다. 외부 재생이 제한된 영상은 사용할 수 없으며 제목·썸네일이 정답을 드러내지 않는지 현장 리허설에서 확인합니다. YouTube의 시작 위치는 가장 가까운 키프레임으로 이동할 수 있어 프레임 단위의 정확한 시작은 보장하지 않습니다. [플레이어 파라미터](https://developers.google.com/youtube/player_parameters#start)
