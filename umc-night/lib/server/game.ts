@@ -63,7 +63,7 @@ export async function startRun(mode: "rehearsal" | "event") {
   });
 }
 
-export async function transitionRun(input: { action: "start" | "pause" | "resume" | "close" | "reveal" | "void" | "finish" | "startTyping" | "forceClose" | "revealAndGrade" | "showRoundResults"; version: number; answer?: string; reason?: string; verdicts?: Record<string, boolean>; answerVersions?: Record<string, number>; questionId?: string; }, actorId: string) {
+export async function transitionRun(input: { action: "start" | "pause" | "resume" | "close" | "reveal" | "void" | "finish" | "startTyping" | "forceClose" | "revealAndGrade" | "showRoundResults" | "skipRound"; version: number; answer?: string; reason?: string; verdicts?: Record<string, boolean>; answerVersions?: Record<string, number>; questionId?: string; }, actorId: string) {
   return db().begin(async tx => {
     const rows = await tx`select * from public.runs where phase <> 'finished' order by created_at desc limit 1 for update`;
     if (!rows.length) throw new AppError("진행할 게임을 먼저 생성해 주세요.", 409, "NO_RUN");
@@ -72,6 +72,24 @@ export async function transitionRun(input: { action: "start" | "pause" | "resume
     if (input.action === "revealAndGrade" && run.phase === "graded" && Number(run.version) === input.version + 1) return { phase: "graded", version: Number(run.version), duplicate: true };
     if (run.version !== input.version) throw new AppError("다른 화면에서 진행 상태가 바뀌었습니다. 새로고침 후 다시 시도해 주세요.", 409, "STALE_VERSION");
     const phase = run.phase as Phase;
+    if (input.action === "skipRound") {
+      if (run.mode !== "rehearsal") throw new AppError("라운드 스킵은 연습 모드에서만 사용할 수 있습니다.", 403, "REHEARSAL_ONLY");
+      const current = run.current_run_question_id ? (await tx`select * from public.run_questions where id=${run.current_run_question_id} for update`)[0] : null;
+      const pending = await tx`select q.*,r.title as round_title from public.questions q join public.rounds r on r.id=q.round_id where q.active and not exists (select 1 from public.run_questions rq where rq.run_id=${run.id} and rq.question_id=q.id) order by r.position,r.created_at,q.position,q.created_at`;
+      const currentRound = (current?.snapshot as Snapshot | undefined)?.round_id;
+      const targetRound = current && !current.graded_at ? currentRound : pending[0]?.round_id;
+      if (!targetRound) throw new AppError("건너뛸 라운드가 없습니다.", 409, "NO_QUESTIONS");
+      let lastId = current?.id;
+      if (current && currentRound === targetRound && !current.graded_at) {
+        await tx`update public.run_questions set voided=true,graded_at=now() where id=${current.id}`;
+      }
+      for (const question of pending.filter(q => q.round_id === targetRound)) {
+        const skipped = await tx`insert into public.run_questions(run_id,question_id,snapshot,voided,graded_at) values (${run.id},${question.id},${tx.json(snapshotOf(question))},true,now()) returning id`;
+        lastId = skipped[0].id;
+      }
+      const updated = await tx`update public.runs set phase='graded',current_run_question_id=${lastId},round_results_pending=false,deadline_at=null,remaining_seconds=0,version=version+1 where id=${run.id} returning version`;
+      return { phase: "graded", version: Number(updated[0].version) };
+    }
     if (input.action === "start") {
       if (phase !== "lobby" && phase !== "graded") throw new AppError("지금은 다음 문제를 시작할 수 없습니다.", 409);
       const questions = await tx`
@@ -317,7 +335,8 @@ export async function stateFor(view: "screen" | "team" | "host", teamId?: string
   }
   const roundResultsPending = roundBreak && Boolean(run.round_results_pending);
   roundBreak = roundBreak && !run.round_results_pending;
-  const scoresVisible = view === "host" || run.phase === "finished" || roundBreak;
+  const finaleReady = run.phase === "graded" && roundBreak && !hasNextQuestion;
+  const scoresVisible = view === "host" || run.phase === "finished" || (roundBreak && hasNextQuestion);
   const publicTeams = teams.map(t => ({ id: t.id, number: t.number, name: t.name, score: scoresVisible ? scoreMap.get(t.id) ?? 0 : null }));
   const revealed = run.phase === "revealed" || run.phase === "graded" || run.phase === "finished";
   const correctAnswer = snapshot?.answer_mode === "live" ? rq?.selected_answer as string | null : snapshot?.correct_answer;
@@ -336,7 +355,7 @@ export async function stateFor(view: "screen" | "team" | "host", teamId?: string
   const answerMap = new Map(answerRows.map(row => [row.team_id as string, row]));
   const screenAnswersVisible = view === "screen" && !rq?.voided && (run.phase === "revealed" || run.phase === "graded");
   const base = {
-    phase: run.phase as Phase, runId: run.id as string, mode: run.mode as string, version: Number(run.version), scoresVisible, roundBreak, roundResultsPending, hasNextQuestion,
+    phase: run.phase as Phase, runId: run.id as string, mode: run.mode as string, version: Number(run.version), scoresVisible, roundBreak, roundResultsPending, hasNextQuestion, finaleReady,
     typing: snapshot?.kind === "typing" && rq ? await typingState(String(rq.id), snapshot, String(run.phase), view, teamId, Boolean(rq.voided)) : null,
     ...(view === "screen" ? { teamAnswersVisible: screenAnswersVisible } : {}),
     serverNow: new Date().toISOString(), deadlineAt: run.deadline_at as Date | null,
