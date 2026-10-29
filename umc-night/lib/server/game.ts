@@ -329,7 +329,7 @@ export async function stateFor(view: "screen" | "team" | "host", teamId?: string
     roundTitle: snapshot.round_title,
     imageUrl: snapshot.image_path ? `/api/media/${snapshot.image_path}` : null,
     revealImageUrl: revealed && snapshot.reveal_image_path ? `/api/media/${snapshot.reveal_image_path}` : null,
-    youtube: view !== "team" && !revealed && snapshot.youtube_video_id ? { videoId: snapshot.youtube_video_id, startSeconds: snapshot.youtube_start_seconds ?? 0 } : null,
+    youtube: view !== "team" && revealed && snapshot.youtube_video_id ? { videoId: snapshot.youtube_video_id, startSeconds: snapshot.youtube_start_seconds ?? 0 } : null,
     ...((revealed || view === "host") && correctAnswer != null ? { correctAnswer } : {}),
   } : null;
   const answerRows = rq ? await sql`select a.team_id,a.value,a.version,g.correct,g.points from public.answers a left join public.grades g on g.run_question_id=a.run_question_id and g.team_id=a.team_id where a.run_question_id=${rq.id}` : [];

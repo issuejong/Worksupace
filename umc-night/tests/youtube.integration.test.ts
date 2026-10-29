@@ -22,16 +22,25 @@ suite("saved YouTube quiz settings", () => {
     if (!("id" in result)) throw new Error("Expected a question");
     return String(result.id);
   }
-  it("persists normalized settings, freezes a running clip, hides it on phones and removes it on reveal", async () => {
+  it("persists normalized settings, freezes a running clip, hides it until reveal and keeps it off phones", async () => {
     const id = await save();
     expect((await setupState()).questions.find(q=>q.id===id)).toMatchObject({youtube_video_id:videoId,youtube_start_seconds:80});
     const run = await startRun("rehearsal"); runId = run.runId;
     const started = await transitionRun({action:"start",version:run.version},actor);
     await save({id,youtubeStart:"2:05"});
-    expect((await stateFor("screen")).question?.youtube).toEqual({videoId,startSeconds:80});
-    expect((await stateFor("team",randomUUID())).question?.youtube).toBeNull();
-    await transitionRun({action:"revealAndGrade",version:started.version},actor);
     expect((await stateFor("screen")).question?.youtube).toBeNull();
+    expect((await stateFor("host")).question?.youtube).toBeNull();
+    expect((await stateFor("team",randomUUID())).question?.youtube).toBeNull();
+    const paused = await transitionRun({action:"pause",version:started.version},actor);
+    expect((await stateFor("screen")).question?.youtube).toBeNull();
+    const closed = await transitionRun({action:"close",version:paused.version},actor);
+    expect((await stateFor("screen")).question?.youtube).toBeNull();
+    await transitionRun({action:"revealAndGrade",version:closed.version},actor);
+    const revealed = await stateFor("screen");
+    expect(revealed.question?.youtube).toEqual({videoId,startSeconds:80});
+    expect(revealed.question).toMatchObject({prompt:"영상의 주인공은?",correctAnswer:"정답"});
+    expect(revealed).toMatchObject({teamAnswersVisible:true});
+    expect((await stateFor("team",randomUUID())).question?.youtube).toBeNull();
     await save({id,youtubeUrl:""});
     expect((await setupState()).questions.find(q=>q.id===id)).toMatchObject({youtube_video_id:null,youtube_start_seconds:0});
   });
