@@ -33,7 +33,34 @@ function download(name: string, text: string, type = "application/json") {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-type Chat = { role: string; text: string; record?: unknown };
+type Candidate = {
+  name: string;
+  config: Config;
+  metrics: {
+    endAssets: number;
+    minAssets: number;
+    firstNegative: string | null;
+    passes: boolean;
+  };
+};
+type AnalysisCard = {
+  id: string;
+  kind: string;
+  baseConfig: Config;
+  objective?: string;
+  evaluated?: number;
+  feasible?: number | boolean;
+  scope?: string;
+  fixed?: Partial<Config>;
+  caveat: string;
+  candidates: Candidate[];
+  safeAlternative?: Candidate | null;
+};
+type Chat = {
+  role: string;
+  text: string;
+  record?: { analyses?: AnalysisCard[]; [key: string]: unknown };
+};
 export default function Page() {
   const [tab, setTab] = useState("결과"),
     [chatOpen, setChatOpen] = useState(true),
@@ -800,11 +827,14 @@ export default function Page() {
                 aria-live="polite"
               >
                 <p className="muted">
-                  현재 조건과 최근 대화를 바탕으로 함께 분석합니다. 변경을
-                  요청하면 현재 시나리오에 반영합니다.
+                  분석과 탐색은 현재 조건을 유지합니다. 변경을 요청하거나 후보의
+                  ‘이 안 적용’을 누르면 반영합니다.
                 </p>
                 <div className="actions">
                   {[
+                    "현재 가정을 유지하고 기말 금융자산이 가장 많은 조합을 찾아줘",
+                    "비상자금을 유지할 수 있는 생활비 한도를 찾아줘",
+                    "현재 조건의 스트레스 테스트를 해줘",
                     "재취업이 1년 늦어지면?",
                     "생활비를 월 280만 원으로 바꿔줘",
                     "현재 안의 취약한 가정을 설명해줘",
@@ -835,6 +865,114 @@ export default function Page() {
                         </Markdown>
                       </div>
                     )}
+                    {c.record?.analyses?.map((analysis) => (
+                      <div className="analysis-card" key={analysis.id}>
+                        <strong>
+                          {(
+                            {
+                              current: "현재 조건",
+                              simulation: "변경안 비교",
+                              comparison: "시나리오 비교",
+                              search: "조합 탐색",
+                              spending: "생활비 한도",
+                              stress: "위험 분석",
+                            } as Record<string, string>
+                          )[analysis.kind] ?? "계산 결과"}
+                        </strong>
+                        {analysis.evaluated !== undefined && (
+                          <p>
+                            {analysis.evaluated}개 조합 계산 · 조건 충족{" "}
+                            {analysis.feasible}개 · 목표{" "}
+                            {analysis.objective === "minAssets"
+                              ? "기간 중 최저 자산"
+                              : "2060년 말 금융자산"}
+                          </p>
+                        )}
+                        {analysis.scope && <p>{analysis.scope}</p>}
+                        {analysis.fixed && (
+                          <details>
+                            <summary>고정한 가정</summary>
+                            {(
+                              Object.entries(analysis.fixed) as [
+                                keyof Config,
+                                number | boolean,
+                              ][]
+                            ).map(([key, value]) => (
+                              <div key={key}>
+                                {labels[key]}: {displayValue(key, value)}
+                              </div>
+                            ))}
+                          </details>
+                        )}
+                        {analysis.candidates.length === 0 && (
+                          <p>이 범위에서 조건을 만족하는 안이 없습니다.</p>
+                        )}
+                        {analysis.candidates.map((item, index) => (
+                          <div className="candidate" key={index}>
+                            <b>{item.name}</b>
+                            <p>
+                              기말 {fmt(item.metrics.endAssets)}만 원 · 최저{" "}
+                              {fmt(item.metrics.minAssets)}만 원<br />
+                              최초 부족 {item.metrics.firstNegative ?? "없음"} ·
+                              비상자금 {item.metrics.passes ? "충족" : "미달"}
+                            </p>
+                            <details>
+                              <summary>계산 조건</summary>
+                              {(
+                                Object.entries(item.config) as [
+                                  keyof Config,
+                                  number | boolean,
+                                ][]
+                              ).map(([key, value]) => (
+                                <div key={key}>
+                                  {labels[key]}: {displayValue(key, value)}
+                                </div>
+                              ))}
+                            </details>
+                            <button
+                              className="secondary"
+                              disabled={busy}
+                              onClick={() => {
+                                if (
+                                  JSON.stringify(config) !==
+                                  JSON.stringify(analysis.baseConfig)
+                                ) {
+                                  setError(
+                                    "분석 이후 현재 조건이 달라졌습니다. 같은 질문으로 다시 계산해 주세요.",
+                                  );
+                                  return;
+                                }
+                                const parsed = configSchema.safeParse(
+                                  item.config,
+                                );
+                                if (!parsed.success) return;
+                                setUndoConfig(config);
+                                setConfig(parsed.data);
+                                setError("");
+                                setChats((chats) => [
+                                  ...chats,
+                                  {
+                                    role: "user",
+                                    text: `${item.name}의 계산 조건을 적용했습니다.`,
+                                  },
+                                ]);
+                              }}
+                            >
+                              이 안 적용
+                            </button>
+                          </div>
+                        ))}
+                        {analysis.safeAlternative && (
+                          <p>
+                            자산 부족 없는 대안: {analysis.safeAlternative.name}{" "}
+                            · 기말{" "}
+                            {fmt(analysis.safeAlternative.metrics.endAssets)}만
+                            원 · 계산 조건은 대화 저장 기록에 포함됩니다.
+                          </p>
+                        )}
+                        <small>{analysis.caveat}</small>
+                      </div>
+                    ))}
                     {c.record !== undefined && (
                       <small className="muted">
                         도구·계산 버전 기록 저장됨
