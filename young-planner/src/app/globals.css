@@ -679,7 +679,7 @@ main {
 }
 @media (min-width: 801px) {
   .agent-panel {
-    height: clamp(420px, calc(100dvh - 340px), 850px);
+    height: clamp(520px, calc(100dvh - 180px), 950px);
   }
 }
 
