@@ -23,7 +23,7 @@ it("runs Gemini tool changes through the calculation engine", async () => {
               type: "function",
               function: {
                 name: "simulate_scenario",
-                arguments: '{"living":280}',
+                arguments: '{"changes":{"living":280}}',
               },
             },
           ],
@@ -56,8 +56,8 @@ it("runs Gemini tool changes through the calculation engine", async () => {
   );
   const body = await response.json();
   expect(response.status).toBe(200);
-  expect(body.config.living).toBe(280);
-  expect(body.comparison.changes).toEqual({ living: 280 });
+  expect(body.config.living).toBe(defaults.living);
+  expect(body.analyses[0].candidates[1].config.living).toBe(280);
   expect(body.model).toBe("gemini-3.5-flash-lite");
   expect(create).toHaveBeenCalledTimes(2);
   expect((create.mock.calls[0][0] as { messages: unknown[] }).messages).toEqual(
@@ -69,7 +69,8 @@ it("runs Gemini tool changes through the calculation engine", async () => {
     messages: { role: string; content?: string }[];
   };
   expect(second.messages.at(-1)?.role).toBe("tool");
-  expect(JSON.parse(second.messages.at(-1)!.content!).after.endAssets).toBe(
-    body.comparison.after.endAssets,
-  );
+  expect(
+    JSON.parse(second.messages.at(-1)!.content!).candidates[1].metrics
+      .endAssets,
+  ).toBe(body.analyses[0].candidates[1].metrics.endAssets);
 });
