@@ -44,7 +44,14 @@ it("runs Gemini tool changes through the calculation engine", async () => {
   const response = await POST(
     new Request("http://localhost/api/ai", {
       method: "POST",
-      body: JSON.stringify({ question: "생활비 280만 원", config: defaults }),
+      body: JSON.stringify({
+        question: "생활비 280만 원",
+        config: defaults,
+        history: [
+          { role: "user", content: "생활비를 올려보고 싶어" },
+          { role: "assistant", content: "얼마로 변경할까요?" },
+        ],
+      }),
     }),
   );
   const body = await response.json();
@@ -53,6 +60,11 @@ it("runs Gemini tool changes through the calculation engine", async () => {
   expect(body.comparison.changes).toEqual({ living: 280 });
   expect(body.model).toBe("gemini-3.5-flash-lite");
   expect(create).toHaveBeenCalledTimes(2);
+  expect((create.mock.calls[0][0] as { messages: unknown[] }).messages).toEqual(
+    expect.arrayContaining([
+      { role: "user", content: "생활비를 올려보고 싶어" },
+    ]),
+  );
   const second = create.mock.calls[1][0] as {
     messages: { role: string; content?: string }[];
   };
