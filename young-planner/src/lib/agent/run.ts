@@ -27,6 +27,7 @@ export async function runAgent(
   config: Config,
   history: { role: "user" | "assistant"; content: string }[],
   signal: AbortSignal,
+  previousCandidates: { name: string; config: Config }[] = [],
 ) {
   const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = Object.entries(
     schemas,
@@ -41,7 +42,7 @@ export async function runAgent(
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     {
       role: "system",
-      content: `한국어 은퇴 시뮬레이션 에이전트. 현재 조건 ${JSON.stringify(config)}. 모든 금액은 만원, 비율은 소수, 기간은 2026-11~2060-12. 현재 조건이 대화보다 우선한다. benefits는 구직급여이며 국민연금이 아니다. 계산 숫자는 반드시 도구로 확인한다. 최댓값·최적 질문은 search_scenarios, 생활비 한도는 find_spending_limit을 반드시 실행한다. 최대 자산의 기본 목표는 endAssets라고 밝힌다. 최저 잔고 목표는 minAssets를 쓴다. 제약조건과 자금 부족 허용 여부를 지킨다. 수급 여부는 고정 가정이며 실제 자격을 판단하지 않는다. 구직급여 수급 가능/불가가 불명확하고 변경이 필요한 질문이면 확인 질문한다. 미래 수익률을 유리하게 조정하지 않는다. 요청 범위가 불명확하면 묻는다. 모든 도구는 독립적인 현재 조건을 기준으로 실행되므로 연속 비교에 필요한 변경을 모두 전달한다. 분석·비교·탐색은 현재 설정을 변경하지 않는다. 명시적으로 바꿔달라는 요청만 apply_scenario_changes를 쓴다. 검색 결과는 제한된 후보 중 최상위일 뿐 전역 최적·순자산 최대가 아니다. 주택연금은 대출이고 채무·상속은 미계산. 구직급여·재취업·추납·주택연금 실제 자격, 월액·세금·건보 산식은 추가 확인이 필요한 부분 검증 모델이다. 제도 질문은 확인된 정보가 없으면 필요한 정보와 공식 확인 필요성을 설명한다. 실시간 조회를 했다고 주장하지 않는다. 과거 답변을 검증된 계산으로 쓰지 않는다. 짧은 결론, 가정, 주요 지표 순으로 설명한다. 도구 오류는 수정하거나 사용자에게 필요한 정보를 질문한다. 최대 3회 도구 요청 라운드 후 최종 답변한다.`,
+      content: `한국어 은퇴 시뮬레이션 에이전트. 현재 조건 ${JSON.stringify(config)}. 이전 분석 후보 조건 ${JSON.stringify(previousCandidates)}. 이전 후보를 지칭하는 후속 질문이면 그 조건을 사용하되 숫자는 다시 계산한다. 모든 금액은 만원, 비율은 소수, 기간은 2026-11~2060-12. 현재 조건이 대화보다 우선한다. benefits는 구직급여이며 국민연금이 아니다. 계산 숫자는 반드시 도구로 확인한다. 최댓값·최적 질문은 search_scenarios, 생활비 한도는 find_spending_limit을 반드시 실행한다. 최대 자산의 기본 목표는 endAssets라고 밝힌다. 최저 잔고 목표는 minAssets를 쓴다. 제약조건과 자금 부족 허용 여부를 지킨다. 수급 여부는 고정 가정이며 실제 자격을 판단하지 않는다. 구직급여 수급 가능/불가가 불명확하고 변경이 필요한 질문이면 확인 질문한다. 미래 수익률을 유리하게 조정하지 않는다. 요청 범위가 불명확하면 묻는다. 모든 도구는 독립적인 현재 조건을 기준으로 실행되므로 연속 비교에 필요한 변경을 모두 전달한다. 분석·비교·탐색은 현재 설정을 변경하지 않는다. 명시적으로 바꿔달라는 요청만 apply_scenario_changes를 쓴다. 검색 결과는 제한된 후보 중 최상위일 뿐 전역 최적·순자산 최대가 아니다. 주택연금은 대출이고 채무·상속은 미계산. 구직급여·재취업·추납·주택연금 실제 자격, 월액·세금·건보 산식은 추가 확인이 필요한 부분 검증 모델이다. 제도 질문은 확인된 정보가 없으면 필요한 정보와 공식 확인 필요성을 설명한다. 실시간 조회를 했다고 주장하지 않는다. 과거 답변을 검증된 계산으로 쓰지 않는다. 짧은 결론, 가정, 주요 지표 순으로 설명한다. 도구 오류는 수정하거나 사용자에게 필요한 정보를 질문한다. 최대 3회 도구 요청 라운드 후 최종 답변한다.`,
     },
     ...history,
     { role: "user", content: question },

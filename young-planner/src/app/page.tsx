@@ -266,6 +266,17 @@ export default function Page() {
         },
         body: JSON.stringify({
           question: text,
+          previousCandidates: chats
+            .flatMap(
+              (c) =>
+                c.record?.analyses?.flatMap((a) =>
+                  a.candidates.map((item) => ({
+                    name: item.name,
+                    config: item.config,
+                  })),
+                ) ?? [],
+            )
+            .slice(-6),
           config,
           history: chats.slice(-10).map((c) => ({
             role: c.role === "user" ? "user" : "assistant",

@@ -8,6 +8,10 @@ const requests = new Map<string, { time: number; count: number }>();
 const inputSchema = z.object({
   question: z.string().min(1).max(1500),
   config: configSchema,
+  previousCandidates: z
+    .array(z.object({ name: z.string().max(80), config: configSchema }))
+    .max(6)
+    .default([]),
   history: z
     .array(
       z.object({
@@ -63,7 +67,7 @@ export async function POST(request: Request) {
         { error: "질문 또는 조건이 올바르지 않습니다." },
         { status: 400 },
       );
-    const { question, config, history } = parsed.data;
+    const { question, config, history, previousCandidates } = parsed.data;
     const client = new OpenAI({
       apiKey: gemini ? process.env.GEMINI_API_KEY : process.env.OPENAI_API_KEY,
       ...(gemini
@@ -85,6 +89,7 @@ export async function POST(request: Request) {
           config,
           history,
           controller.signal,
+          previousCandidates,
         ),
       );
     } finally {
