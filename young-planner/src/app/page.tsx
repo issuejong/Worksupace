@@ -37,6 +37,7 @@ type Chat = { role: string; text: string; record?: unknown };
 export default function Page() {
   const [tab, setTab] = useState("결과"),
     [chatOpen, setChatOpen] = useState(true),
+    [settingsOpen, setSettingsOpen] = useState(true),
     [undoConfig, setUndoConfig] = useState<Config | null>(null),
     [config, setConfig] = useState<Config>({ ...defaults }),
     [selected, setSelected] = useState("S4"),
@@ -286,7 +287,17 @@ export default function Page() {
           <span className="badge">2026.11 — 2060.12</span>
         </div>
         <div className="workspace-toolbar">
-          <span>조건을 바꾸면 현재 시나리오에 바로 반영됩니다.</span>
+          <div className="settings-toolbar">
+            <button
+              className="secondary"
+              aria-expanded={settingsOpen}
+              aria-controls="scenario-settings"
+              onClick={() => setSettingsOpen((open) => !open)}
+            >
+              {settingsOpen ? "설정 접기" : "설정 열기"}
+            </button>
+            <span>조건을 바꾸면 현재 시나리오에 바로 반영됩니다.</span>
+          </div>
           <button
             className="secondary"
             aria-expanded={chatOpen}
@@ -302,8 +313,13 @@ export default function Page() {
           </p>
         )}
         <div className={`workspace ${chatOpen ? "with-agent" : ""}`}>
-          <div className="grid">
-            <aside className="card side">
+          <div className={`grid ${settingsOpen ? "" : "settings-collapsed"}`}>
+            <aside
+              id="scenario-settings"
+              className="card side"
+              aria-label="시나리오 설정"
+              hidden={!settingsOpen}
+            >
               <fieldset disabled={busy} className="condition-fields">
                 <legend>시나리오 조건</legend>
                 <div className="profile">

@@ -682,3 +682,20 @@ main {
     height: clamp(420px, calc(100dvh - 340px), 850px);
   }
 }
+
+.settings-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.grid.settings-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+.side[hidden] {
+  display: none;
+}
+@media (max-width: 800px) {
+  .settings-toolbar > span {
+    display: none;
+  }
+}
