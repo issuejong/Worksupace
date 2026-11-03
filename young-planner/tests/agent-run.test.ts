@@ -80,11 +80,9 @@ it("keeps completed calculations when follow-up model call fails", async () => {
   expect(r.config).toEqual(defaults);
 });
 it("passes candidate conditions for follow-up questions and reuses no old metrics", async () => {
-  const create = vi
-    .fn()
-    .mockResolvedValue({
-      choices: [{ message: { role: "assistant", content: "확인 질문" } }],
-    });
+  const create = vi.fn().mockResolvedValue({
+    choices: [{ message: { role: "assistant", content: "확인 질문" } }],
+  });
   await runAgent(
     { chat: { completions: { create } } } as unknown as OpenAI,
     "test",
@@ -117,4 +115,26 @@ it("blocks automatic changes during analysis", async () => {
   );
   expect(r.config).toEqual(defaults);
   expect(r.trace[0].status).toBe("error");
+});
+it("does not label reserve shortfall as bankruptcy", async () => {
+  const create = vi
+    .fn()
+    .mockResolvedValueOnce(
+      tool("simulate_scenario", { changes: { catchup: false } }),
+    )
+    .mockResolvedValueOnce({
+      choices: [
+        { message: { role: "assistant", content: "파산이 발생합니다" } },
+      ],
+    });
+  const r = await runAgent(
+    { chat: { completions: { create } } } as unknown as OpenAI,
+    "test",
+    "추납 없이 비교",
+    defaults,
+    [],
+    new AbortController().signal,
+  );
+  expect(r.answer).toContain("비상자금 기준 미달은 자산 소진과 다릅니다");
+  expect(r.answer).not.toContain("파산이 발생");
 });
