@@ -100,14 +100,16 @@ export async function runAgent(
       if (
         computed.length &&
         computed.every((c) => c.metrics.firstNegative === null) &&
-        /(파산|고갈|자금 부족.{0,15}발생)/.test(answer)
+        /(파산.{0,12}(발생|합니다|된다)|고갈.{0,12}(발생|됩니다)|자금 부족.{0,15}발생)/.test(
+          answer,
+        )
       ) {
         answer =
           "계산한 모든 안에서 금융자산이 음수가 되는 달은 없습니다. 비상자금 기준 미달은 자산 소진과 다릅니다.\n\n" +
           computed
             .map(
               (c) =>
-                `${c.name}: 기말 ${Math.round(c.metrics.endAssets).toLocaleString("ko-KR")}만 원, 최저 ${Math.round(c.metrics.minAssets).toLocaleString("ko-KR")}만 원, 비상자금 ${c.metrics.passes ? "충족" : "미달"}`,
+                `${c.name}: 월 생활비 ${c.config.living}만 원, 기말 ${Math.round(c.metrics.endAssets).toLocaleString("ko-KR")}만 원, 최저 ${Math.round(c.metrics.minAssets).toLocaleString("ko-KR")}만 원, 비상자금 ${c.metrics.passes ? "충족" : "미달"}`,
             )
             .join("\n");
       }

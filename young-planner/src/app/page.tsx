@@ -921,6 +921,15 @@ export default function Page() {
                         {analysis.candidates.map((item, index) => (
                           <div className="candidate" key={index}>
                             <b>{item.name}</b>
+                            {analysis.kind === "spending" && (
+                              <p>
+                                <strong>
+                                  월 생활비 한도{" "}
+                                  {item.config.living.toLocaleString("ko-KR")}만
+                                  원
+                                </strong>
+                              </p>
+                            )}
                             <p>
                               기말 {fmt(item.metrics.endAssets)}만 원 · 최저{" "}
                               {fmt(item.metrics.minAssets)}만 원<br />
