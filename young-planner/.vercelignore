@@ -1,0 +1,6 @@
+tests/
+docs/
+.env*
+!.env.example
+*.tsbuildinfo
+AGENTS.md
