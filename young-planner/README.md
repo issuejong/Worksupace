@@ -14,7 +14,7 @@ npm run dev -- --port 3011
 
 http://localhost:3011 에서 엽니다. 기본 계산과 비교·저장은 API 설정 없이 사용할 수 있습니다.
 
-AI를 사용하려면 `.env.local`에 `OPENAI_API_KEY`, 계정에서 지원하는 `OPENAI_MODEL`을 설정하고 서버를 재시작하세요. 배포 환경에서는 동일한 값을 Vercel 환경변수에 설정합니다. `AI_ACCESS_TOKEN`을 설정하면 AI 화면의 접근 설정에도 같은 토큰이 필요합니다. API 키는 브라우저에 입력하지 않습니다.
+AI를 사용하려면 `.env.local`에 `GEMINI_API_KEY`, `GEMINI_MODEL=gemini-3.5-flash-lite`를 설정하고 서버를 재시작하세요. Gemini 무료 등급의 호출 한도를 적용하며 유료 서비스로 자동 전환하지 않습니다. OpenAI를 쓰려면 Gemini 키를 비우고 `OPENAI_API_KEY`, `OPENAI_MODEL`을 설정합니다. 배포 환경에서는 동일한 값을 Vercel 환경변수에 설정합니다. `AI_ACCESS_TOKEN`을 설정하면 AI 화면의 접근 설정에도 같은 토큰이 필요합니다. API 키는 브라우저에 입력하지 않습니다.
 
 ## 검증
 
@@ -42,6 +42,6 @@ npm run build
 
 API 제한은 단일 서버 인스턴스 메모리 기준입니다. 대규모 공개 운영 시 영속적인 호출 제한과 사용자 인증이 추가로 필요합니다. 공모전의 공개 조건에 맞춰 배포 접근 범위를 정하세요.
 
-실제 OpenAI 호출과 Vercel 배포는 키·계정 설정 후 검증해야 합니다.
+실제 AI 호출은 배포 환경의 키·모델 설정과 계정별 사용 한도에 따라 달라집니다.
 
 [구현 계획](docs/implementation-plan.md)

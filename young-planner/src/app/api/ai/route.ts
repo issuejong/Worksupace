@@ -9,9 +9,17 @@ const inputSchema = z.object({
   config: configSchema,
 });
 export async function POST(request: Request) {
-  if (!process.env.OPENAI_API_KEY || !process.env.OPENAI_MODEL)
+  const gemini = Boolean(process.env.GEMINI_API_KEY);
+  const model = gemini ? process.env.GEMINI_MODEL : process.env.OPENAI_MODEL;
+  if (
+    !model ||
+    !(gemini ? process.env.GEMINI_API_KEY : process.env.OPENAI_API_KEY)
+  )
     return Response.json(
-      { error: "서버에 OPENAI_API_KEY와 OPENAI_MODEL을 설정해 주세요." },
+      {
+        error:
+          "서버에 GEMINI_API_KEY와 GEMINI_MODEL 또는 OpenAI 환경변수를 설정해 주세요.",
+      },
       { status: 503 },
     );
   if (
@@ -53,7 +61,16 @@ export async function POST(request: Request) {
       endAssets: current.endAssets,
       reserve: current.reserve,
     });
-    const client = new OpenAI({ timeout: 45000, maxRetries: 0 });
+    const client = new OpenAI({
+      apiKey: gemini ? process.env.GEMINI_API_KEY : process.env.OPENAI_API_KEY,
+      ...(gemini
+        ? {
+            baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+          }
+        : {}),
+      timeout: 45000,
+      maxRetries: 0,
+    });
     const properties = {
       job: { type: ["boolean", "null"] },
       jobDelay: { type: ["integer", "null"] },
@@ -85,8 +102,107 @@ export async function POST(request: Request) {
       },
     ];
     const context = instructions + ` 현재 계산 결과(만원): ${currentSummary}`;
+    if (gemini) {
+      const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+        { role: "system", content: context },
+        { role: "user", content: question },
+      ];
+      const first = await client.chat.completions.create({
+        model,
+        messages,
+        max_tokens: 3000,
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "simulate_scenario",
+              description:
+                "변경할 조건만 지정해 계산한다. 변경하지 않는 조건은 생략한다.",
+              parameters: {
+                type: "object",
+                properties: Object.fromEntries(
+                  Object.entries(properties).map(([key, value]) => [
+                    key,
+                    { type: value.type[0] },
+                  ]),
+                ),
+                additionalProperties: false,
+              },
+            },
+          },
+        ],
+      });
+      const message = first.choices[0]?.message;
+      if (!message) throw new Error("Empty AI response");
+      let next = config;
+      let comparison = null;
+      let answer = message.content;
+      if (message.tool_calls?.length) {
+        if (message.tool_calls.length !== 1)
+          throw new Error("Unexpected tool count");
+        const call = message.tool_calls[0];
+        if (
+          call.type !== "function" ||
+          call.function.name !== "simulate_scenario"
+        )
+          throw new Error("Unknown tool");
+        const raw = JSON.parse(call.function.arguments);
+        const allowed = z
+          .object({
+            job: z.boolean().optional(),
+            jobDelay: z.number().int().optional(),
+            living: z.number().optional(),
+            inflation: z.number().optional(),
+            returns: z.number().optional(),
+            repay: z.boolean().optional(),
+            catchup: z.boolean().optional(),
+            home: z.boolean().optional(),
+            homeYear: z.number().int().optional(),
+            homePayment: z.number().optional(),
+            shock: z.number().optional(),
+            shockYear: z.number().int().optional(),
+          })
+          .strict();
+        const changes = allowed.parse(raw);
+        next = configSchema.parse({ ...config, ...changes });
+        const summary = (c: typeof config) => {
+          const r = simulate(c);
+          return {
+            firstNegative: r.firstNegative,
+            minAssets: r.minAssets,
+            endAssets: r.endAssets,
+            reserve: r.reserve,
+            passes: r.passes,
+          };
+        };
+        comparison = { before: summary(config), after: summary(next), changes };
+        const second = await client.chat.completions.create({
+          model,
+          max_tokens: 3000,
+          messages: [
+            ...messages,
+            message,
+            {
+              role: "tool",
+              tool_call_id: call.id,
+              content: JSON.stringify(comparison),
+            },
+          ],
+        });
+        answer = second.choices[0]?.message.content ?? null;
+      }
+      if (!answer?.trim()) throw new Error("Empty AI answer");
+      return Response.json({
+        answer,
+        config: next,
+        comparison,
+        model,
+        modelVersion,
+        date: new Date().toISOString(),
+      });
+    }
     const first = await client.responses.create({
-      model: process.env.OPENAI_MODEL,
+      model,
       instructions: context,
       input: question,
       tools,
@@ -116,7 +232,7 @@ export async function POST(request: Request) {
       };
       comparison = { before: summary(config), after: summary(next), changes };
       const second = await client.responses.create({
-        model: process.env.OPENAI_MODEL,
+        model,
         instructions: context,
         input: [
           { role: "user", content: question },
@@ -138,11 +254,19 @@ export async function POST(request: Request) {
       answer,
       config: next,
       comparison,
-      model: process.env.OPENAI_MODEL,
+      model,
       modelVersion,
       date: new Date().toISOString(),
     });
   } catch (error) {
+    if (error instanceof OpenAI.APIError && error.status === 429)
+      return Response.json(
+        {
+          error:
+            "AI 무료 사용량 또는 호출 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.",
+        },
+        { status: 429 },
+      );
     if (error instanceof z.ZodError)
       return Response.json(
         {
