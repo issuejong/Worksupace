@@ -88,7 +88,19 @@ export function executeHouseholdTool(
   args: unknown,
   h: Household,
   s: Solutions,
+  unavailable: (keyof Household)[] = [],
 ) {
+  const unavailablePlan = (plan: Solutions) =>
+    Object.entries({
+      job: ["jobIncome"],
+      benefits: ["benefit", "benefitMonths"],
+      catchup: ["catchupCost", "catchupPension"],
+      home: ["house"],
+    }).some(
+      ([key, fields]) =>
+        plan[key as keyof Solutions] === true &&
+        fields.some((field) => unavailable.includes(field as keyof Household)),
+    );
   if (name === "inspect") {
     const a = schemas.inspect.parse(args),
       r = calculate(h, a.before ? none : s, !a.before);
@@ -113,6 +125,10 @@ export function executeHouseholdTool(
   }
   if (name === "compare") {
     const a = schemas.compare.parse(args);
+    if (a.candidates.some((c) => unavailablePlan({ ...s, ...c.plan })))
+      throw Error(
+        "해당 준비 방법의 비용·월액 정보가 미확인입니다. 사용자에게 먼저 확인하세요.",
+      );
     const candidates = a.candidates.map((c) =>
       candidate(
         c.name,
@@ -161,6 +177,7 @@ export function executeHouseholdTool(
           });
           if (!plan.home && !Object.hasOwn(a.locks, "homeYear"))
             plan.homeYear = s.homeYear;
+          if (unavailablePlan(plan)) continue;
           const id = JSON.stringify(plan);
           if (candidates.some((c) => JSON.stringify(c.plan) === id)) continue;
           const c = candidate("비교 후보", h, plan);
@@ -203,6 +220,7 @@ export async function runHouseholdAgent(
     solutions: Solutions;
     history: { role: "user" | "assistant"; content: string }[];
     previousCandidates?: CandidateInput[];
+    unavailableFields?: (keyof Household)[];
   },
   signal: AbortSignal,
 ): Promise<AgentReply> {
@@ -232,7 +250,7 @@ export async function runHouseholdAgent(
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     {
       role: "system",
-      content: `한국어 은퇴 계획 에이전트. 현재 가구 ${JSON.stringify(h)}, 현재 계획 ${JSON.stringify(s)}. 이전 대화 후보 ${JSON.stringify(input.previousCandidates ?? [])}. 계산 숫자는 도구로 확인하고 금액은 만원, 소수점 최대 한 자리로 표시한다. 현재 입력이 과거 대화보다 우선한다. 변경 요청은 compare로 후보를 제시하고 화면 적용은 사용자의 버튼 클릭으로만 한다. 임의 적용했다고 말하지 않는다. 가장 많은/최적 질문은 search를 반드시 실행하고 목표(endAssets 기본), 고정 조건, 탐색 범위를 밝힌다. 순자산과 금융자산을 혼동하지 않는다. 물가·수익률을 유리하게 바꿔 최적이라고 하지 않는다. 첫 부족월 null은 자산 소진 없음이며 비상자금 미달과 구분한다. 연금·구직급여 자격을 확정하지 말고 실시간 제도 조회를 했다고 말하지 않는다. 정책 질문은 기관 확인이 필요함을 알린다. 짧은 문단으로 먼저 결론, 이유, 비교 조건 순서로 답한다. 계산 범위 밖 질문은 범위를 설명하고 필요한 조건을 묻는다. 이전 후보 후속 질문은 해당 후보의 전체 조건을 compare에 다시 넣어 계산한다. 도구 오류를 숨기지 말고 수정하거나 추가 질문한다. 답변에서 해법 대신 은퇴 계획 또는 준비 방법을 쓴다.`,
+      content: `한국어 은퇴 계획 에이전트. 미확인 항목 ${JSON.stringify(input.unavailableFields || [])}. 해당 항목이 필요한 준비 방법은 사용자에게 먼저 확인한다. 현재 가구 ${JSON.stringify(h)}, 현재 계획 ${JSON.stringify(s)}. 이전 대화 후보 ${JSON.stringify(input.previousCandidates ?? [])}. 계산 숫자는 도구로 확인하고 금액은 만원, 소수점 최대 한 자리로 표시한다. 현재 입력이 과거 대화보다 우선한다. 변경 요청은 compare로 후보를 제시하고 화면 적용은 사용자의 버튼 클릭으로만 한다. 임의 적용했다고 말하지 않는다. 가장 많은/최적 질문은 search를 반드시 실행하고 목표(endAssets 기본), 고정 조건, 탐색 범위를 밝힌다. 순자산과 금융자산을 혼동하지 않는다. 물가·수익률을 유리하게 바꿔 최적이라고 하지 않는다. 첫 부족월 null은 자산 소진 없음이며 비상자금 미달과 구분한다. 연금·구직급여 자격을 확정하지 말고 실시간 제도 조회를 했다고 말하지 않는다. 정책 질문은 기관 확인이 필요함을 알린다. 짧은 문단으로 먼저 결론, 이유, 비교 조건 순서로 답한다. 계산 범위 밖 질문은 범위를 설명하고 필요한 조건을 묻는다. 이전 후보 후속 질문은 해당 후보의 전체 조건을 compare에 다시 넣어 계산한다. 도구 오류를 숨기지 말고 수정하거나 추가 질문한다. 답변에서 해법 대신 은퇴 계획 또는 준비 방법을 쓴다.`,
     },
     ...input.history,
     { role: "user", content: input.question },
@@ -288,6 +306,7 @@ export async function runHouseholdAgent(
           JSON.parse(call.function.arguments),
           h,
           s,
+          input.unavailableFields,
         );
         result.candidates.push(...analysis.candidates);
         result.tools.push(call.function.name);
