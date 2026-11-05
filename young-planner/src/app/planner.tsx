@@ -113,6 +113,10 @@ export default function Planner() {
     if (window.matchMedia("(max-width: 800px)").matches) setSettings(false);
     return () => abort.current?.abort();
   }, []);
+  useEffect(() => {
+    if (ai && window.innerWidth <= 1400)
+      document.getElementById("yp-ai")?.scrollIntoView({ block: "start" });
+  }, [ai]);
   const valid = householdSchema.safeParse(h);
   const solutionValid = solutionSchema.safeParse(s);
   const snapshot = JSON.stringify({ h, s });
@@ -779,7 +783,10 @@ export default function Planner() {
           </div>
           {ai && (
             <aside className="yp-card yp-agent" id="yp-ai">
-              <h2>AI 상담 메모</h2>
+              <div className="yp-actions">
+                <h2>AI 상담 메모</h2>
+                <button onClick={() => setAI(false)}>설명 패널 닫기</button>
+              </div>
               <p>
                 계산은 엔진이, 설명은 AI가 합니다. 이 패널은 설정을 변경하지
                 않습니다.
