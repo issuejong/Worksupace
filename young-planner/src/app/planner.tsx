@@ -32,7 +32,13 @@ import {
   prepareScenario,
   inputLabels,
 } from "../lib/input";
-import type { Candidate, AgentReply } from "../lib/household-agent";
+import type { Candidate } from "../lib/household-agent";
+import {
+  readPlannerSession,
+  sessionKey,
+  type Message,
+  type Origin,
+} from "../lib/planner-session";
 import "./planner.css";
 
 type FieldSpec = [keyof Household, string, string?];
@@ -393,13 +399,6 @@ function RobotIcon({ size = 28 }: { size?: number }) {
     </svg>
   );
 }
-type Origin = "manual" | "chat" | "example" | "file";
-type Message = {
-  revision?: number;
-  question: string;
-  reply: AgentReply & { intake?: { patch: Partial<Household> } };
-  snapshot: string;
-};
 export default function Planner() {
   const [h, setHousehold] = useState<Household>(blankHousehold),
     [s, setS] = useState<Solutions>({
@@ -407,6 +406,8 @@ export default function Planner() {
       homeYear: new Date().getFullYear(),
     });
   const revision = useRef(0);
+  const [storageReady, setStorageReady] = useState(false);
+  const [storageError, setStorageError] = useState("");
   const [origins, setOrigins] = useState<
     Partial<Record<keyof Household, Origin>>
   >({});
@@ -486,6 +487,52 @@ export default function Planner() {
   const snapshot = JSON.stringify({ h, s }),
     snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(sessionKey);
+      if (saved) {
+        const restored = readPlannerSession(saved);
+        revision.current = restored.revision;
+        setHousehold(restored.household);
+        setS(restored.solutions);
+        setOrigins(restored.origins);
+        setMessages(restored.messages);
+        setQuestion(restored.question);
+        setTab(restored.tab);
+        setAI(restored.ai);
+      }
+    } catch {
+      setStorageError("이 브라우저에 저장된 내용을 불러오지 못했어요.");
+    } finally {
+      setStorageReady(true);
+    }
+  }, []);
+  useEffect(() => {
+    if (
+      !storageReady ||
+      (!Object.keys(origins).length && !messages.length && !question)
+    )
+      return;
+    try {
+      window.localStorage.setItem(
+        sessionKey,
+        JSON.stringify({
+          household: h,
+          solutions: s,
+          origins,
+          messages,
+          question,
+          tab,
+          ai,
+          revision: revision.current,
+          snapshot,
+        }),
+      );
+      setStorageError("");
+    } catch {
+      setStorageError("이 브라우저에 자동 저장하지 못했어요.");
+    }
+  }, [storageReady, h, s, origins, messages, question, tab, ai, snapshot]);
   const result = useMemo(() => {
     try {
       const ready = prepareScenario(h, s).household;
@@ -575,6 +622,40 @@ export default function Planner() {
       />
     );
   }
+  function resetPlanner() {
+    const hasWork = Object.keys(origins).length || messages.length || question;
+    if (
+      hasWork &&
+      !window.confirm("이 브라우저에 저장된 입력과 대화를 모두 지울까요?")
+    )
+      return;
+    try {
+      window.localStorage.removeItem(sessionKey);
+      setStorageError("");
+    } catch {
+      setStorageError("브라우저에 저장된 내용을 지우지 못했어요.");
+      return;
+    }
+    const activeRequest = abort.current;
+    abort.current = null;
+    activeRequest?.abort();
+    sending.current = false;
+    setBusy(false);
+    setUndo(null);
+    setH(blankHousehold());
+    setS({ ...none, homeYear: new Date().getFullYear() });
+    setOrigins({});
+    setMessages([]);
+    setQuestion("");
+    setSettings(false);
+    setAI(false);
+    setExampleInfo(false);
+    setTab("result");
+    setApplied("");
+    setFileError("");
+    setAIError("");
+    setNotice("입력과 대화를 초기화했어요.");
+  }
   function resetExample() {
     setAI(false);
     setSettings(false);
@@ -613,8 +694,9 @@ export default function Planner() {
     setAI(true);
     setBusy(true);
     setAIError("");
-    abort.current = new AbortController();
-    const signal = abort.current.signal,
+    const request = new AbortController();
+    abort.current = request;
+    const signal = request.signal,
       snap = snapshot;
     const requestRevision = revision.current;
     const pendingPatch = !result
@@ -674,13 +756,17 @@ export default function Planner() {
       ]);
       setQuestion("");
     } catch (e) {
+      if (abort.current !== request) return;
       if (signal.aborted)
         setAIError("분석을 중단했어요. 질문을 수정하거나 다시 보낼 수 있어요.");
       else setAIError(e instanceof Error ? e.message : "AI 연결에 실패했어요.");
     } finally {
-      sending.current = false;
-      setBusy(false);
-      agentInput.current?.focus();
+      if (abort.current === request) {
+        abort.current = null;
+        sending.current = false;
+        setBusy(false);
+        agentInput.current?.focus();
+      }
     }
   }
   function applyCandidate(c: Candidate, snap: string) {
@@ -810,20 +896,10 @@ export default function Planner() {
           <div className="yp-example-actions">
             <button
               className="yp-text-button"
-              onClick={() => {
-                abort.current?.abort();
-                setUndo({ h, s, origins });
-                setH(blankHousehold());
-                setS({ ...none, homeYear: new Date().getFullYear() });
-                setOrigins({});
-                setMessages([]);
-                setQuestion("");
-                setSettings(false);
-                setAI(false);
-                setNotice("입력을 새로 시작해요.");
-              }}
+              onClick={resetPlanner}
+              disabled={!storageReady}
             >
-              새로 입력
+              초기화
             </button>
             <button className="yp-example-button" onClick={resetExample}>
               권 부장 부부 예시 넣기
@@ -1031,8 +1107,8 @@ export default function Planner() {
                       저장·불러오기<span>⌄</span>
                     </summary>
                     <p className="yp-note">
-                      내 기기에 파일로 저장해요. 서버에 입력값을 저장하지
-                      않아요.
+                      자동 저장과 별도로 입력 조건을 내 기기에 파일로 저장할 수
+                      있어요.
                     </p>
                     <div className="yp-actions">
                       <button
@@ -2003,6 +2079,14 @@ export default function Planner() {
           )}
         </div>
         <footer className="yp-footer">
+          {storageError ? (
+            <p role="status">{storageError}</p>
+          ) : (
+            <p>
+              입력과 대화는 이 브라우저에 자동 저장돼요. 지우려면 ‘초기화’를
+              누르세요.
+            </p>
+          )}
           참고용 시뮬레이션이며 상품 권유가 아니에요.
           <br />
           실제 수급 자격·지급액·세금은 관련 기관에서 확인해 주세요.
