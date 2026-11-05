@@ -38,3 +38,37 @@ it("does not require loan terms when the user reports no loan", () => {
   const h = { ...example, loan: 0, loanRate: NaN, loanMonths: NaN };
   expect(prepareScenario(h, none).household?.loanMonths).toBe(1);
 });
+
+it("blocks plans that depend on missing income or costs", async () => {
+  const { executeHouseholdTool } = await import("../src/lib/household-agent");
+  expect(() =>
+    executeHouseholdTool(
+      "compare",
+      { candidates: [{ name: "미확인", household: {}, plan: { job: true } }] },
+      example,
+      none,
+      ["jobIncome"],
+    ),
+  ).toThrow("미확인");
+  const output = executeHouseholdTool(
+    "search",
+    { goal: "endAssets", locks: { ...none }, avoidShortfall: false },
+    example,
+    none,
+    ["jobIncome", "benefit", "catchupCost"],
+  );
+  expect(
+    output.candidates.every(
+      (c) => !c.plan.job && !c.plan.benefits && !c.plan.catchup,
+    ),
+  ).toBe(true);
+});
+
+
+it("preserves known optional values when their plan is off", () => {
+  const prepared = prepareScenario(example, none).household;
+  expect(prepared?.jobIncome).toBe(example.jobIncome);
+  expect(prepared?.benefit).toBe(example.benefit);
+  expect(prepared?.catchupCost).toBe(example.catchupCost);
+  expect(prepared?.catchupPension).toBe(example.catchupPension);
+});

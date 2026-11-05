@@ -90,7 +90,7 @@ export function executeHouseholdTool(
   s: Solutions,
   unavailable: (keyof Household)[] = [],
 ) {
-  const unavailablePlan = (plan: Solutions) =>
+  const unavailablePlan = (plan: Solutions, patch: Partial<Household> = {}) =>
     Object.entries({
       job: ["jobIncome"],
       benefits: ["benefit", "benefitMonths"],
@@ -99,7 +99,11 @@ export function executeHouseholdTool(
     }).some(
       ([key, fields]) =>
         plan[key as keyof Solutions] === true &&
-        fields.some((field) => unavailable.includes(field as keyof Household)),
+        fields.some(
+          (field) =>
+            unavailable.includes(field as keyof Household) &&
+            !Number.isFinite(patch[field as keyof Household]),
+        ),
     );
   if (name === "inspect") {
     const a = schemas.inspect.parse(args),
@@ -125,7 +129,11 @@ export function executeHouseholdTool(
   }
   if (name === "compare") {
     const a = schemas.compare.parse(args);
-    if (a.candidates.some((c) => unavailablePlan({ ...s, ...c.plan })))
+    if (
+      a.candidates.some((c) =>
+        unavailablePlan({ ...s, ...c.plan }, c.household),
+      )
+    )
       throw Error(
         "해당 준비 방법의 비용·월액 정보가 미확인입니다. 사용자에게 먼저 확인하세요.",
       );

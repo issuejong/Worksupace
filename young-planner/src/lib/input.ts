@@ -3,7 +3,6 @@ import {
   Household,
   Solutions,
   householdSchema,
-  solutionSchema,
 } from "./household";
 export const draftSchema = z.object(householdSchema.shape).partial().strict();
 export const inputLabels: Partial<Record<keyof Household, string>> = {
@@ -107,11 +106,11 @@ export function prepareScenario(h: Household, s: Solutions) {
     spouseEnd: h.spouseIncome === 0 ? h.start : h.spouseEnd,
     loanRate: h.loan === 0 ? 0 : h.loanRate,
     loanMonths: h.loan === 0 ? 1 : h.loanMonths,
-    jobIncome: s.job ? h.jobIncome : 0,
-    benefit: s.benefits ? h.benefit : 0,
-    benefitMonths: s.benefits ? h.benefitMonths : 0,
-    catchupCost: s.catchup ? h.catchupCost : 0,
-    catchupPension: s.catchup ? h.catchupPension : 0,
+    jobIncome: Number.isFinite(h.jobIncome) ? h.jobIncome : 0,
+    benefit: Number.isFinite(h.benefit) ? h.benefit : 0,
+    benefitMonths: Number.isFinite(h.benefitMonths) ? h.benefitMonths : 0,
+    catchupCost: Number.isFinite(h.catchupCost) ? h.catchupCost : 0,
+    catchupPension: Number.isFinite(h.catchupPension) ? h.catchupPension : 0,
   };
   const parsed = householdSchema.safeParse(normalized);
   return { missing, household: parsed.success ? parsed.data : null };
