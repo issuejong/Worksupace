@@ -183,3 +183,52 @@ it("uses Gemini backup after Groq input collection is overloaded", async () => {
     log.mockRestore();
   }
 });
+
+it("recovers from the production json_validate_failed error using the backup model", async () => {
+  vi.stubEnv("GEMINI_API_KEY", "test-gemini");
+  vi.stubEnv("GEMINI_MODEL", "test-gemini-model");
+  vi.stubEnv("GROQ_API_KEY", "test-groq");
+  vi.stubEnv("GROQ_MODEL", "openai/gpt-oss-20b");
+  vi.stubEnv("AI_ACCESS_TOKEN", "");
+  create
+    .mockRejectedValueOnce({ status: 400, code: "json_validate_failed" })
+    .mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              answer: "확인했어요.",
+              patch: { assets: 6000, loan: 0, spouseBirth: null },
+            }),
+          },
+        },
+      ],
+    });
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const response = await POST(
+      new Request("http://local/api/agent", {
+        method: "POST",
+        headers: { "x-forwarded-for": "json-generation-recovery-test" },
+        body: JSON.stringify({
+          operation: "collect",
+          question: "가상 가구 예금 6천 대출없음",
+          household: {},
+          solutions: none,
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(create.mock.calls.map((c) => c[0].model)).toEqual([
+      "openai/gpt-oss-20b",
+      "gemini-3.1-flash-lite",
+    ]);
+    expect(create.mock.calls[0][0].response_format.type).toBe("json_schema");
+    expect((await response.json()).intake.patch).toEqual({
+      assets: 6000,
+      loan: 0,
+    });
+  } finally {
+    log.mockRestore();
+  }
+});

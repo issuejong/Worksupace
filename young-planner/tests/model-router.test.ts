@@ -202,3 +202,76 @@ it("does not retry another model within the same provider for quota errors", asy
   await expect(router.complete(params)).rejects.toEqual({ status: 429 });
   expect(x.second).not.toHaveBeenCalled();
 });
+
+it("switches providers for a JSON generation failure even when its HTTP status is 400", async () => {
+  const x = setup(
+    vi.fn().mockRejectedValue({ status: 400, code: "json_validate_failed" }),
+  );
+  expect(await x.router.complete(params)).toBe(reply);
+  expect(x.switched).toHaveBeenCalledWith(
+    expect.objectContaining({ reason: "json_validate_failed" }),
+  );
+});
+
+it("switches after an unusable successful response without returning it to the browser", async () => {
+  const x = setup();
+  const validate = vi.fn().mockImplementationOnce(() => {
+    throw { code: "invalid_ai_response" };
+  });
+  const router = createModelRouter({
+    targets: x.targets,
+    signal: new AbortController().signal,
+    timeoutMs: 1000,
+    health: new Map(),
+    validate,
+  });
+  expect(await router.complete(params)).toBe(reply);
+  expect(x.second).toHaveBeenCalledTimes(1);
+  expect(validate).toHaveBeenCalledTimes(2);
+});
+
+it("requests strict nullable input fields from Groq without constraining tool analysis", () => {
+  const collect = groqParameters({
+    ...params,
+    model: "openai/gpt-oss-120b",
+    response_format: { type: "json_object" },
+  });
+  expect(collect.response_format).toMatchObject({
+    type: "json_schema",
+    json_schema: { strict: true, schema: { additionalProperties: false } },
+  });
+  if (collect.response_format?.type !== "json_schema")
+    throw Error("strict schema missing");
+  const schema = collect.response_format.json_schema.schema as {
+    properties: {
+      patch: {
+        properties: Record<string, { type: string[] }>;
+        required: string[];
+        additionalProperties: boolean;
+      };
+    };
+  };
+  expect(schema.properties.patch.properties.assets.type).toEqual([
+    "number",
+    "null",
+  ]);
+  expect(schema.properties.patch.properties.birth.type).toEqual([
+    "string",
+    "null",
+  ]);
+  expect(schema.properties.patch.required).toEqual(
+    Object.keys(schema.properties.patch.properties),
+  );
+  expect(schema.properties.patch.additionalProperties).toBe(false);
+  expect(
+    groqParameters({
+      ...params,
+      tools: [
+        {
+          type: "function",
+          function: { name: "inspect", parameters: { type: "object" } },
+        },
+      ],
+    }).response_format,
+  ).toBeUndefined();
+});

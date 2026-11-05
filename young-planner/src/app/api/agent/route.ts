@@ -24,6 +24,7 @@ import {
 import {
   createModelRouter,
   groqParameters,
+  modelErrorCode,
   type ModelTarget,
 } from "../../../lib/model-router";
 export const runtime = "nodejs";
@@ -239,6 +240,12 @@ export async function POST(req: Request) {
       targets,
       signal,
       timeoutMs: parsed.data.operation === "collect" ? 8000 : 12000,
+      validate:
+        parsed.data.operation === "collect"
+          ? (reply) => {
+              parseIntakeResponse(reply.choices[0]?.message.content || "{}");
+            }
+          : undefined,
       onAttempt: (active) => {
         context.model = redactDiagnostic(active.model, secrets);
         context.provider = active.provider;
@@ -267,7 +274,7 @@ export async function POST(req: Request) {
         messages: [
           {
             role: "system",
-            content: `한국어 은퇴 준비 입력 상담. 오늘 한국 날짜 ${new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" })}. JSON {"answer":"짧은 상담과 다음 질문","patch":{}}로 답한다. 허용 필드 ${JSON.stringify(Object.keys(draftSchema.shape))}, 이름 ${JSON.stringify(inputLabels)}. 현재 입력 ${JSON.stringify(input.household)}. 최신 사용자 발언에 명시된 정보만 patch에 넣는다. 금액은 만원, 비율은 소수, 날짜는 YYYY-MM. 사용자 개인정보나 누락값을 추정하거나 보고서 예시값을 채우지 않는다. 금액·세전/세후·배우자·월/연·합계 포함 여부·월이 모호하면 먼저 물어보고 해당 값을 patch에 넣지 않는다. 모름은 0이 아니다. 미확인 항목은 patch에서 키 자체를 생략한다. null이나 빈 문자열을 보내지 않는다. 추가 질문은 한번에 1~2개만 한다. 추출한 값은 사용자의 반영 버튼으로만 적용된다. 필수 정보: 본인/배우자 출생연월, 은퇴월, 세후소득, 배우자근로종료월(소득있는경우), 금융자산, 대출잔액(있으면 금리/잔여개월), 월생활비, 세후퇴직금, 부부 예상 월연금. 이미 있는 값은 반복해 묻지 않는다. 계산과 자격 판정은 하지 않는다.`,
+            content: `한국어 은퇴 준비 입력 상담. 오늘 한국 날짜 ${new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" })}. JSON {"answer":"짧은 상담과 다음 질문","patch":{}}로 답한다. 허용 필드 ${JSON.stringify(Object.keys(draftSchema.shape))}, 이름 ${JSON.stringify(inputLabels)}. 현재 입력 ${JSON.stringify(input.household)}. 최신 사용자 발언에 명시된 정보만 patch에 넣는다. 금액은 만원, 비율은 소수, 날짜는 YYYY-MM. 사용자 개인정보나 누락값을 추정하거나 보고서 예시값을 채우지 않는다. 금액·세전/세후·배우자·월/연·합계 포함 여부·월이 모호하면 먼저 물어보고 해당 값을 patch에 넣지 않는다. 모름은 0이 아니다. 미확인 항목은 추측하지 않는다. 출력 스키마에서 필수 키이면 null을 사용하고, 생략 가능하면 patch에서 키를 생략한다. 빈 문자열은 보내지 않는다. 추가 질문은 한번에 1~2개만 한다. 추출한 값은 사용자의 반영 버튼으로만 적용된다. 필수 정보: 본인/배우자 출생연월, 은퇴월, 세후소득, 배우자근로종료월(소득있는경우), 금융자산, 대출잔액(있으면 금리/잔여개월), 월생활비, 세후퇴직금, 부부 예상 월연금. 이미 있는 값은 반복해 묻지 않는다. 계산과 자격 판정은 하지 않는다.`,
           },
           ...input.history,
           { role: "user", content: input.question },
@@ -337,7 +344,10 @@ export async function POST(req: Request) {
         },
         { status: 503, headers: { "Retry-After": "5" } },
       );
-    if (e instanceof IntakeResponseError)
+    if (
+      e instanceof IntakeResponseError ||
+      modelErrorCode(e) === "json_validate_failed"
+    )
       return respond(
         {
           error:

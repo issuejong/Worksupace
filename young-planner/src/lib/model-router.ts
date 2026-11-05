@@ -1,5 +1,16 @@
 import type OpenAI from "openai";
 import { providerStatus } from "./ai-reliability";
+import { intakeResponseFormat } from "./input";
+
+export function modelErrorCode(error: unknown): string | undefined {
+  if (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    typeof error.code === "string"
+  )
+    return error.code;
+}
 
 type Params = OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming;
 type Reply = OpenAI.Chat.Completions.ChatCompletion;
@@ -15,6 +26,7 @@ export function createModelRouter(options: {
   targets: ModelTarget[];
   signal: AbortSignal;
   timeoutMs: number;
+  validate?: (reply: Reply) => void;
   onAttempt?: (target: ModelTarget) => void;
   onSwitch?: (event: {
     from: string;
@@ -65,6 +77,7 @@ export function createModelRouter(options: {
           signal,
         );
         options.signal.throwIfAborted();
+        options.validate?.(reply);
         health.delete(model);
         return reply;
       } catch (error) {
@@ -74,12 +87,21 @@ export function createModelRouter(options: {
           status === 429 &&
           index + 1 < targets.length &&
           target.provider !== targets[index + 1].provider;
+        const generationFailure = [
+          "json_validate_failed",
+          "invalid_ai_response",
+        ].includes(modelErrorCode(error) || "");
         const transient =
+          generationFailure ||
           independentQuota ||
           deadline.aborted ||
           [408, 500, 502, 503, 504].includes(status || 0);
         if (!transient) throw error;
-        health.set(model, Date.now() + (status === 429 ? 60000 : 30000));
+        health.set(
+          model,
+          Date.now() +
+            (generationFailure ? 5000 : status === 429 ? 60000 : 30000),
+        );
         if (index + 1 >= models.length) {
           if (deadline.aborted)
             throw new DOMException(
@@ -93,7 +115,11 @@ export function createModelRouter(options: {
           from: target.model,
           to: targets[index + 1].model,
           toProvider: targets[index + 1].provider,
-          reason: deadline.aborted ? "timeout" : `http_${status}`,
+          reason: generationFailure
+            ? modelErrorCode(error)!
+            : deadline.aborted
+              ? "timeout"
+              : `http_${status}`,
         });
       }
     }
@@ -110,6 +136,9 @@ export function createModelRouter(options: {
 export function groqParameters(params: Params): Params {
   return {
     ...params,
+    ...(params.response_format?.type === "json_object" && !params.tools?.length
+      ? { response_format: intakeResponseFormat }
+      : {}),
     parallel_tool_calls: false,
     max_tokens: Math.min(params.max_tokens || 1000, 1000),
     ...(params.model.includes("gpt-oss")

@@ -115,7 +115,45 @@ export const proposalSchema = z
   .object({ answer: z.string().min(1).max(2500), patch: draftSchema })
   .strict();
 
-export class IntakeResponseError extends Error {}
+export class IntakeResponseError extends Error {
+  readonly code = "invalid_ai_response";
+  readonly name = "IntakeResponseError";
+}
+
+// Groq strict schemas require every key. Unknown values remain null and are
+// removed by parseIntakeResponse; never coerce unknown financial values to zero.
+export const intakeResponseFormat = {
+  type: "json_schema" as const,
+  json_schema: {
+    name: "household_intake",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["answer", "patch"],
+      properties: {
+        answer: { type: "string" },
+        patch: {
+          type: "object",
+          additionalProperties: false,
+          required: Object.keys(householdSchema.shape),
+          properties: Object.fromEntries(
+            Object.entries(householdSchema.shape).map(([key, field]) => [
+              key,
+              {
+                type: [
+                  field instanceof z.ZodString ? "string" : "number",
+                  "null",
+                ],
+                description: `${inputLabels[key as keyof Household] || key}. 미확인 값은 null. ${field instanceof z.ZodString ? "날짜는 YYYY-MM." : "금액은 만원, 비율은 소수."}`,
+              },
+            ]),
+          ),
+        },
+      },
+    },
+  },
+};
 
 export function parseIntakeResponse(content: string) {
   let raw: unknown;
