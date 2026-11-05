@@ -75,6 +75,7 @@ export const solutionSchema = z
     catchup: z.boolean(),
     home: z.boolean(),
     homeYear: z.number().int().min(2026).max(2120),
+    homeMonth: z.number().int().min(1).max(12).default(2),
     pensionOffset: z.number().int().min(-60).max(60),
     homeOverride: z.number().min(0).max(500),
   })
@@ -123,6 +124,7 @@ export const adopted: Solutions = {
   catchup: true,
   home: true,
   homeYear: 2031,
+  homeMonth: 2,
   pensionOffset: 0,
   homeOverride: 0,
 };
@@ -160,10 +162,10 @@ export function installment(loan: number, rate: number, months: number) {
   const i = rate / 12;
   return (loan * i) / (1 - (1 + i) ** -months);
 }
-export function homePayment(h: Household, year: number) {
+export function homePayment(h: Household, year: number, monthOfYear = 2) {
   const age = Math.floor(
     (year * 12 +
-      2 -
+      monthOfYear -
       (h.hasSpouse === false
         ? month(h.birth)
         : Math.max(month(h.birth), month(h.spouseBirth)))) /
@@ -200,10 +202,11 @@ export function calculate(
     retire = month(h.retire),
     normal = pensionStart(h.birth),
     wife = pensionStart(h.spouseBirth),
-    home = s.homeOverride || homePayment(h, s.homeYear) || 0;
+    home = s.homeOverride || homePayment(h, s.homeYear, s.homeMonth) || 0;
   const warnings: string[] = [];
   const housingReady =
-    h.loan === 0 || (s.repay && s.homeYear * 12 + 2 >= retire + 1);
+    h.loan === 0 ||
+    (s.repay && s.homeYear * 12 + s.homeMonth >= retire + 1);
   if (s.home && !housingReady && s.repay)
     warnings.push(
       "주택연금 개시가 대출 상환보다 빠릅니다. 가입 시점을 상환 이후로 바꾸세요.",
@@ -253,7 +256,7 @@ export function calculate(
     35: h.jobIncome,
     36: h.catchupCost,
     37: start,
-    38: s.homeYear * 12 + 2,
+    38: s.homeYear * 12 + s.homeMonth,
     39: home,
     40: +s.benefits,
     41: +s.job,

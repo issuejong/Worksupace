@@ -45,3 +45,23 @@ it("restores an unfinished chat with its pending card and preserves zero and fal
     reply: { intake: { patch: { birth: "1971-05" } } },
   });
 });
+
+it("loads saved plans from before the housing-pension month field", () => {
+  const solutions = { ...none } as Record<string, unknown>;
+  delete solutions.homeMonth;
+  const household = blankHousehold();
+  const restored = readPlannerSession(
+    JSON.stringify({
+      household,
+      solutions,
+      origins: {},
+      messages: [],
+      question: "",
+      tab: "result",
+      ai: false,
+      revision: 0,
+      snapshot: JSON.stringify({ h: household, s: solutions }),
+    }),
+  );
+  expect(restored.solutions.homeMonth).toBe(2);
+});

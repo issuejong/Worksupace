@@ -43,6 +43,23 @@ describe("household simulator", () => {
       a.rows.find((r) => r.date === "2028-07")!.components.배우자급여,
     ).toBe(0);
   });
+  it("reproduces the workbook's early housing-pension risk responses", () => {
+    const earlyHome = {
+      ...adopted,
+      job: false,
+      homeYear: 2027,
+      homeMonth: 11,
+      homeOverride: 62.24,
+    };
+    const r1a = calculate(example, earlyHome);
+    expect(r1a.firstNegative).toBe("2031-07");
+    expect(r1a.minAssets).toBeCloseTo(-2733.99067895279, 4);
+
+    const extendedWork = { ...example, spouseEnd: "2033-12" };
+    const r1e = calculate(extendedWork, earlyHome);
+    expect(r1e.firstNegative).toBeNull();
+    expect(r1e.minAssets).toBeCloseTo(1841.2929087684, 4);
+  });
   it("supports zero loan and zero-interest loans", () => {
     expect(installment(1200, 0, 120)).toBe(10);
     expect(

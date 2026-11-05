@@ -104,6 +104,7 @@ const planLabels: Record<keyof Solutions, string> = {
   catchup: "배우자 연금 추납",
   home: "주택연금",
   homeYear: "주택연금 시작 연도",
+  homeMonth: "주택연금 시작 월",
   pensionOffset: "국민연금 수령 시기",
   homeOverride: "주택연금 월액",
 };
@@ -127,7 +128,7 @@ const showValue = (v: unknown, key?: string) =>
       ? "선택"
       : "미선택"
     : typeof v === "number"
-      ? `${fmt(v)}${key === "pensionOffset" ? "개월" : key === "homeYear" ? "년" : ""}`
+      ? `${fmt(v)}${key === "pensionOffset" || key === "homeMonth" ? "개월" : key === "homeYear" ? "년" : ""}`
       : String(v);
 function householdValue(value: unknown, key: string) {
   if (key === "hasSpouse" && typeof value === "boolean")
@@ -158,6 +159,7 @@ function NumberField({
   label,
   value,
   unit = "만 원",
+  precision = 1,
   onChange,
   error,
   hint,
@@ -165,13 +167,14 @@ function NumberField({
   label: string;
   value: number;
   unit?: string;
+  precision?: number;
   onChange: (v: number) => void;
   error?: string;
   hint?: string;
 }) {
   const errorId = useId();
   const display = Number.isFinite(value)
-    ? String(Number(value.toFixed(1)))
+    ? String(Number(value.toFixed(precision)))
     : "";
   const [draft, setDraft] = useState(display);
   useEffect(() => setDraft(display), [display]);
@@ -188,7 +191,11 @@ function NumberField({
           aria-label={label}
           onChange={(e) => {
             const v = e.target.value;
-            if (!/^-?\d*(\.\d?)?$/.test(v)) return;
+            if (
+              !/^-?\d*(\.\d*)?$/.test(v) ||
+              (v.split(".")[1]?.length ?? 0) > precision
+            )
+              return;
             setDraft(v);
             if (v === "") onChange(NaN);
             if (
@@ -604,6 +611,7 @@ export default function Planner() {
         label={label}
         value={unit === "%" ? value * 100 : value}
         unit={unit}
+        precision={unit === "%" ? 4 : 1}
         onChange={(v) => update(key, unit === "%" ? v / 100 : v)}
         error={error}
         hint={origins[key] === "example" ? "예시에서 채운 값" : undefined}
@@ -626,7 +634,11 @@ export default function Planner() {
     setBusy(false);
     setUndo(null);
     setH(blankHousehold());
-    setS({ ...none, homeYear: new Date().getFullYear() });
+    setS({
+      ...none,
+      homeYear: new Date().getFullYear(),
+      homeMonth: 2,
+    });
     setOrigins({});
     setMessages([]);
     setQuestion("");
@@ -648,9 +660,11 @@ export default function Planner() {
       Object.fromEntries(Object.keys(example).map((k) => [k, "example"])),
     );
     setS({ ...adopted });
-    setNotice("권 부장 부부의 정보와 보고서 기본 계획을 불러왔어요.");
+    setNotice(
+      "권 부장 부부 예시와 보고서 기본 계획을 불러왔어요. AI가 새 계획을 만든 것은 아니에요.",
+    );
     setFileError("");
-    setApplied("");
+    setApplied("권 부장 부부 예시");
   }
   function restoreInput() {
     if (!undo) return;
@@ -893,7 +907,7 @@ export default function Planner() {
               aria-controls="yp-example-info"
               onClick={() => setExampleInfo((v) => !v)}
             >
-              예시 소개 {exampleInfo ? "⌃" : "⌄"}
+              {exampleInfo ? "예시 소개 닫기" : "예시 소개 열기"}
             </button>
           </div>
           <button
@@ -945,7 +959,7 @@ export default function Planner() {
                 </h2>
               </div>
               <button
-                aria-label="예시 소개 닫기"
+                aria-label="예시 소개 패널 닫기"
                 onClick={() => setExampleInfo(false)}
               >
                 ×
@@ -1263,8 +1277,9 @@ export default function Planner() {
                   </div>
                   <p className="yp-overview-note">
                     비상자금 목표 {fmt(current.reserve)}만 원{" "}
-                    {current.passes ? "충족" : "미달"} · 본인 정상 연금 전 공백{" "}
-                    {current.gapMonths}개월
+                    {current.passes ? "충족" : "미달"} · 본인 정년부터 정상 연금까지{" "}
+                    {current.gapMonths}개월 · 부부 모두 근로·연금 없는 기간{" "}
+                    {current.householdGap}개월
                   </p>
                 </section>
                 <nav className="yp-tabs" aria-label="분석 내용 선택">
@@ -1532,8 +1547,24 @@ export default function Planner() {
                                         }
                                       />
                                     </label>
+                                    <label className="yp-field">
+                                      <span>주택연금 시작 월</span>
+                                      <select
+                                        aria-label="주택연금 시작 월"
+                                        value={s.homeMonth}
+                                        onChange={(e) =>
+                                          setPlan({ homeMonth: +e.target.value })
+                                        }
+                                      >
+                                        {Array.from({ length: 12 }, (_, i) => (
+                                          <option key={i + 1} value={i + 1}>
+                                            {i + 1}월
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
                                     <p className="yp-note">
-                                      {s.homeYear}년 2월부터 월{" "}
+                                      {s.homeYear}년 {s.homeMonth}월부터 월{" "}
                                       {fmt(current.homeMonthly)}만 원 추정 ·
                                       실제 지급액은 한국주택금융공사에서 확인해
                                       주세요.
@@ -1547,9 +1578,7 @@ export default function Planner() {
                                             homeOverride: e.target.checked
                                               ? Math.max(
                                                   0.1,
-                                                  Math.round(
-                                                    current.homeMonthly * 10,
-                                                  ) / 10,
+                                                  current.homeMonthly,
                                                 )
                                               : 0,
                                           })
@@ -1561,6 +1590,7 @@ export default function Planner() {
                                       <NumberField
                                         label="확인한 주택연금 월액"
                                         value={s.homeOverride}
+                                        precision={3}
                                         onChange={(v) =>
                                           setPlan({ homeOverride: v })
                                         }
@@ -2003,7 +2033,12 @@ export default function Planner() {
                 </div>
                 {undo && (
                   <div className="yp-undo" role="status">
-                    <span>✓ {applied || "AI 계획"} 적용 완료</span>
+                    <span>
+                      ✓ {applied || "AI 계획"}{" "}
+                      {applied === "권 부장 부부 예시"
+                        ? "불러오기 완료"
+                        : "적용 완료"}
+                    </span>
                     <button
                       onClick={() => {
                         setH(undo.h);
@@ -2011,7 +2046,11 @@ export default function Planner() {
                         setS(undo.s);
                         setUndo(null);
                         setApplied("");
-                        setNotice("AI 계획 적용 전으로 되돌렸어요.");
+                        setNotice(
+                          applied === "권 부장 부부 예시"
+                            ? "예시를 불러오기 전 입력으로 되돌렸어요."
+                            : "AI 계획 적용 전으로 되돌렸어요.",
+                        );
                       }}
                     >
                       되돌리기
@@ -2099,13 +2138,11 @@ export default function Planner() {
         <button
           ref={chatLauncher}
           className="yp-chat-launcher"
-          onClick={() =>
-            ai ? agentInput.current?.focus({ preventScroll: true }) : showAI()
-          }
-          aria-label={ai ? "챗봇 입력으로 이동" : "챗봇 열기"}
+          onClick={() => (ai ? setAI(false) : showAI())}
+          aria-label={ai ? "챗봇 닫기" : "챗봇 열기"}
           aria-expanded={ai}
           aria-controls="yp-agent"
-          title={ai ? "챗봇 입력으로 이동" : "은퇴 챗봇에게 물어보기"}
+          title={ai ? "챗봇 닫기" : "은퇴 챗봇에게 물어보기"}
         >
           <RobotIcon size={32} />
           <span className="yp-sr">은퇴 챗봇</span>
