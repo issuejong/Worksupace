@@ -105,6 +105,19 @@ export async function POST(req: Request) {
         { error: "입력 형식을 확인해 주세요." },
         { status: 400 },
       );
+    let message = e instanceof Error ? e.message : "Unknown AI error";
+    for (const secret of [
+      process.env.GEMINI_API_KEY,
+      process.env.OPENAI_API_KEY,
+      process.env.AI_ACCESS_TOKEN,
+    ]) {
+      if (secret) message = message.split(secret).join("[REDACTED]");
+    }
+    console.error("Young Planner AI request failed", {
+      name: e instanceof Error ? e.name : "UnknownError",
+      status: e instanceof OpenAI.APIError ? e.status : undefined,
+      message: message.slice(0, 1000),
+    });
     if (e instanceof OpenAI.APIError && e.status === 429)
       return Response.json(
         { error: "AI 사용량 한도에 도달했어요. 잠시 후 다시 시도해 주세요." },
