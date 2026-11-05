@@ -1,0 +1,381 @@
+.planner {
+  font-size: 17px;
+  color: #17332e;
+  background: #f5f6f0;
+  min-height: 100vh;
+}
+.planner header {
+  padding: 18px 4vw;
+  height: auto;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.planner header a {
+  text-decoration: none;
+  font-weight: 800;
+  font-size: 24px;
+  color: #17332e;
+}
+.planner header a span {
+  color: #698363;
+}
+.planner main {
+  max-width: 1920px;
+  padding: 32px 3vw;
+  margin: auto;
+}
+.planner h1 {
+  font-size: clamp(28px, 3vw, 40px);
+  line-height: 1.4;
+  margin: 8px 0 16px;
+}
+.planner h2 {
+  font-size: 23px;
+  margin: 0 0 18px;
+}
+.planner h3 {
+  font-size: 19px;
+  margin: 0 0 12px;
+}
+.planner p {
+  line-height: 1.8;
+  margin: 10px 0 18px;
+}
+.planner button,
+.yp-upload {
+  min-height: 46px;
+  padding: 11px 16px;
+  border: 1px solid #c4d1c6;
+  border-radius: 10px;
+  background: #edf2e8;
+  color: #215341;
+  font-size: 16px;
+  cursor: pointer;
+}
+.planner button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.planner :is(button, a, input, textarea, select, summary):focus-visible {
+  outline: 3px solid #b48c42;
+  outline-offset: 3px;
+}
+.planner input:not([type="checkbox"]):not([type="range"]),
+.planner select,
+.planner textarea {
+  font: inherit;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  border: 1px solid #a8b9ad;
+  padding: 10px;
+  border-radius: 8px;
+  color: #17332e;
+  background: white;
+}
+.planner input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  accent-color: #216653;
+}
+.planner input[type="range"] {
+  width: 100%;
+  min-height: 44px;
+  accent-color: #216653;
+}
+.planner .yp-primary {
+  background: #216653;
+  color: white;
+  border-color: #216653;
+}
+.yp-intro {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: center;
+}
+.yp-eyebrow {
+  color: #216653;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+}
+.yp-mode {
+  padding: 10px 16px;
+  border-radius: 30px;
+  background: #e7eee0;
+  white-space: nowrap;
+}
+.yp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 14px 0;
+}
+.yp-note {
+  font-size: 14px;
+  color: #536b60;
+}
+.yp-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+.yp-workspace.yp-settings-open {
+  grid-template-columns: 300px minmax(0, 1fr);
+}
+.yp-workspace.yp-ai-open {
+  grid-template-columns: minmax(0, 1fr) 360px;
+}
+.yp-workspace.yp-settings-open.yp-ai-open {
+  grid-template-columns: 300px minmax(0, 1fr) 360px;
+}
+.yp-card {
+  background: white;
+  border: 1px solid #d7e1d6;
+  border-radius: 17px;
+  padding: 24px;
+  min-width: 0;
+}
+.yp-analysis {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+.yp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 16px 0;
+  font-size: 16px;
+  line-height: 1.7;
+}
+.yp-progress {
+  display: flex;
+  gap: 10px;
+}
+.yp-progress [aria-pressed="true"] {
+  background: #216653;
+  color: white;
+}
+.yp-fields {
+  min-width: 0;
+}
+.planner summary {
+  cursor: pointer;
+  font-weight: 700;
+  min-height: 46px;
+  line-height: 1.7;
+}
+.planner details {
+  margin: 18px 0;
+}
+.yp-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.yp-metrics > div {
+  background: #edf2e8;
+  border-radius: 12px;
+  padding: 18px;
+  min-width: 0;
+}
+.yp-metrics span,
+.yp-metrics small {
+  display: block;
+  font-size: 14px;
+  line-height: 1.8;
+}
+.yp-metrics strong {
+  display: block;
+  font-size: clamp(20px, 1.9vw, 28px);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.yp-solutions {
+  display: grid;
+  gap: 10px;
+}
+.yp-solutions label,
+.yp-consent {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  min-height: 46px;
+}
+.yp-charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.yp-chart p {
+  font-size: 13px;
+  color: #536b60;
+}
+.yp-plot {
+  height: 290px;
+  min-width: 0;
+}
+.yp-scroll {
+  overflow: auto;
+  max-height: 500px;
+}
+.yp-scroll table {
+  width: 100%;
+  font-size: 14px;
+}
+.yp-scroll td,
+.yp-scroll th {
+  white-space: nowrap;
+  padding: 12px;
+  text-align: right;
+}
+.yp-success,
+.yp-warning,
+.yp-error {
+  padding: 14px;
+  border-radius: 9px;
+}
+.yp-success {
+  background: #e7eee0;
+  color: #215341;
+}
+.yp-warning {
+  background: #fcf0d7;
+  color: #735419;
+}
+.yp-error {
+  background: #fce8e2;
+  color: #8e3325;
+}
+.yp-agent {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+}
+.yp-messages {
+  max-height: 480px;
+  overflow: auto;
+}
+.yp-messages article {
+  padding: 16px;
+  background: #f0f4ec;
+  margin: 14px 0;
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.yp-agent .yp-actions button {
+  font-size: 14px;
+}
+.yp-upload {
+  position: relative;
+  display: block;
+  overflow: hidden;
+}
+.yp-upload input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.planner footer {
+  padding: 30px 0;
+  font-size: 14px;
+  color: #536b60;
+}
+.yp-mobile {
+  display: none;
+}
+@media (max-width: 1400px) {
+  .yp-workspace.yp-settings-open.yp-ai-open {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+  .yp-agent {
+    grid-column: 1/-1;
+    position: relative;
+    max-height: none;
+  }
+  .yp-charts {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 800px) {
+  .planner main {
+    padding: 24px 16px;
+  }
+  .yp-intro {
+    display: block;
+  }
+  .yp-mobile {
+    display: block;
+  }
+  .yp-mode {
+    display: inline-block;
+    font-size: 14px;
+  }
+  .yp-workspace.yp-settings-open,
+  .yp-workspace.yp-ai-open,
+  .yp-workspace.yp-settings-open.yp-ai-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .yp-settings {
+    max-width: 100%;
+    padding: 20px;
+  }
+  .yp-metrics {
+    grid-template-columns: 1fr;
+  }
+  .yp-metrics strong {
+    font-size: 26px;
+  }
+  .yp-card {
+    padding: 20px;
+  }
+  .yp-charts {
+    grid-template-columns: 1fr;
+  }
+  .yp-agent {
+    grid-column: auto;
+    position: relative;
+  }
+  .yp-plot {
+    height: 260px;
+  }
+  .planner header small {
+    font-size: 12px;
+  }
+}
+@media print {
+  .planner header,
+  .yp-settings,
+  .yp-agent,
+  .yp-actions,
+  .yp-export {
+    display: none !important;
+  }
+  .yp-workspace {
+    display: block !important;
+  }
+  .yp-card {
+    break-inside: avoid;
+    margin: 16px 0;
+    box-shadow: none;
+  }
+  .yp-charts {
+    grid-template-columns: 1fr;
+  }
+  .planner main {
+    padding: 0;
+  }
+  .planner {
+    font-size: 12px;
+  }
+  .planner details:not([open]) {
+    display: none;
+  }
+}
