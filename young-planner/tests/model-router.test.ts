@@ -230,7 +230,7 @@ it("switches after an unusable successful response without returning it to the b
   expect(validate).toHaveBeenCalledTimes(2);
 });
 
-it("requests strict nullable input fields from Groq without constraining tool analysis", () => {
+it("requests a strict list of extracted input fields from Groq without constraining tool analysis", () => {
   const collect = groqParameters({
     ...params,
     model: "openai/gpt-oss-120b",
@@ -242,27 +242,20 @@ it("requests strict nullable input fields from Groq without constraining tool an
   });
   if (collect.response_format?.type !== "json_schema")
     throw Error("strict schema missing");
-  const schema = collect.response_format.json_schema.schema as {
+  expect(collect.response_format.json_schema.schema).toMatchObject({
     properties: {
       patch: {
-        properties: Record<string, { type: string[] }>;
-        required: string[];
-        additionalProperties: boolean;
-      };
-    };
-  };
-  expect(schema.properties.patch.properties.assets.type).toEqual([
-    "number",
-    "null",
-  ]);
-  expect(schema.properties.patch.properties.birth.type).toEqual([
-    "string",
-    "null",
-  ]);
-  expect(schema.properties.patch.required).toEqual(
-    Object.keys(schema.properties.patch.properties),
-  );
-  expect(schema.properties.patch.additionalProperties).toBe(false);
+        type: "array",
+        items: {
+          required: ["field", "value"],
+          properties: {
+            field: { enum: expect.arrayContaining(["assets", "birth"]) },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+  });
   expect(
     groqParameters({
       ...params,

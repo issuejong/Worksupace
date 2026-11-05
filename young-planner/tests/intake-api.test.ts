@@ -232,3 +232,40 @@ it("recovers from the production json_validate_failed error using the backup mod
     log.mockRestore();
   }
 });
+
+it("converts Groq's sparse field list to the existing input card", async () => {
+  vi.stubEnv("GROQ_API_KEY", "test-groq");
+  vi.stubEnv("GROQ_MODEL", "test-field-list");
+  vi.stubEnv("AI_ACCESS_TOKEN", "");
+  create.mockResolvedValue({
+    choices: [
+      {
+        message: {
+          content: JSON.stringify({
+            answer: "확인했어요.",
+            patch: [
+              { field: "loan", value: 0 },
+              { field: "assets", value: 6000 },
+              { field: "assets", value: 5000 },
+              { field: "birth", value: "1968" },
+            ],
+          }),
+        },
+      },
+    ],
+  });
+  const response = await POST(
+    new Request("http://local/api/agent", {
+      method: "POST",
+      headers: { "x-forwarded-for": "groq-field-list" },
+      body: JSON.stringify({
+        operation: "collect",
+        question: "가상 입력",
+        household: {},
+        solutions: none,
+      }),
+    }),
+  );
+  expect(response.status).toBe(200);
+  expect((await response.json()).intake.patch).toEqual({ loan: 0 });
+});

@@ -120,12 +120,11 @@ export class IntakeResponseError extends Error {
   readonly name = "IntakeResponseError";
 }
 
-// Groq strict schemas require every key. Unknown values remain null and are
-// removed by parseIntakeResponse; never coerce unknown financial values to zero.
+// Use a list so the strict schema only requires keys on entries the model emits.
 export const intakeResponseFormat = {
   type: "json_schema" as const,
   json_schema: {
-    name: "household_intake",
+    name: "household_intake_fields",
     strict: true,
     schema: {
       type: "object",
@@ -134,21 +133,16 @@ export const intakeResponseFormat = {
       properties: {
         answer: { type: "string" },
         patch: {
-          type: "object",
-          additionalProperties: false,
-          required: Object.keys(householdSchema.shape),
-          properties: Object.fromEntries(
-            Object.entries(householdSchema.shape).map(([key, field]) => [
-              key,
-              {
-                type: [
-                  field instanceof z.ZodString ? "string" : "number",
-                  "null",
-                ],
-                description: `${inputLabels[key as keyof Household] || key}. 미확인 값은 null. ${field instanceof z.ZodString ? "날짜는 YYYY-MM." : "금액은 만원, 비율은 소수."}`,
-              },
-            ]),
-          ),
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["field", "value"],
+            properties: {
+              field: { type: "string", enum: Object.keys(draftSchema.shape) },
+              value: { anyOf: [{ type: "number" }, { type: "string" }] },
+            },
+          },
         },
       },
     },
@@ -165,14 +159,32 @@ export function parseIntakeResponse(content: string) {
   const envelope = z
     .object({
       answer: z.string().trim().min(1).max(2500),
-      patch: z.record(z.string(), z.unknown()).nullish(),
+      patch: z
+        .union([
+          z.record(z.string(), z.unknown()),
+          z
+            .array(
+              z.object({
+                field: z.string(),
+                value: z.union([z.number(), z.string()]),
+              }),
+            )
+            .max(Object.keys(draftSchema.shape).length),
+        ])
+        .nullish(),
     })
     .safeParse(raw);
   if (!envelope.success)
     throw new IntakeResponseError("AI 응답을 읽을 수 없습니다.");
   const patch: Partial<Household> = {};
   const invalid: string[] = [];
-  for (const [key, value] of Object.entries(envelope.data.patch || {})) {
+  const updates = envelope.data.patch;
+  const entries = Array.isArray(updates)
+    ? updates.map(({ field, value }) => [field, value] as const)
+    : Object.entries(updates || {});
+  const counts = new Map<string, number>();
+  for (const [key] of entries) counts.set(key, (counts.get(key) || 0) + 1);
+  for (const [key, value] of entries) {
     if (!Object.hasOwn(draftSchema.shape, key)) continue;
     // Unknown values are absent, never zero or an invented month.
     if (
@@ -183,11 +195,12 @@ export function parseIntakeResponse(content: string) {
       continue;
     const field = key as keyof Household;
     const checked = draftSchema.shape[field].safeParse(value);
-    if (checked.success) Object.assign(patch, { [field]: checked.data });
+    if (checked.success && counts.get(key) === 1)
+      Object.assign(patch, { [field]: checked.data });
     else invalid.push(inputLabels[field] || key);
   }
   const answer = invalid.length
-    ? `${envelope.data.answer.slice(0, 2000)}\n\n다음 정보는 형식이나 범위를 확인해야 해서 반영하지 않았어요: ${invalid.join(" · ")}. 날짜는 연도와 월(YYYY-MM), 금액은 만 원 단위로 알려주세요.`
+    ? `${envelope.data.answer.slice(0, 2000)}\n\n다음 정보는 형식이나 범위를 확인해야 해서 반영하지 않았어요: ${[...new Set(invalid)].join(" · ")}. 날짜는 연도와 월(YYYY-MM), 금액은 만 원 단위로 알려주세요.`
     : envelope.data.answer;
   return proposalSchema.parse({ answer, patch });
 }

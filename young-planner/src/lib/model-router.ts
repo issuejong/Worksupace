@@ -134,11 +134,11 @@ export function createModelRouter(options: {
 }
 
 export function groqParameters(params: Params): Params {
+  const collecting =
+    params.response_format?.type === "json_object" && !params.tools?.length;
   return {
     ...params,
-    ...(params.response_format?.type === "json_object" && !params.tools?.length
-      ? { response_format: intakeResponseFormat }
-      : {}),
+    ...(collecting ? { response_format: intakeResponseFormat } : {}),
     parallel_tool_calls: false,
     max_tokens: Math.min(params.max_tokens || 1000, 1000),
     ...(params.model.includes("gpt-oss")
@@ -164,7 +164,16 @@ export function groqParameters(params: Params): Params {
                 }
               : {}),
           }
-        : message,
+        : collecting &&
+            message.role === "system" &&
+            typeof message.content === "string"
+          ? {
+              ...message,
+              content:
+                message.content +
+                '\n출력 형식: patch는 확인된 항목의 배열이다. 예: {"answer":"확인했어요.","patch":[{"field":"assets","value":6000}]}. 확인된 항목이 없으면 patch는 빈 배열이다. 같은 field를 반복하지 않는다.',
+            }
+          : message,
     ),
   };
 }
