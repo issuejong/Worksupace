@@ -25,6 +25,13 @@ import {
   fmt,
   version,
 } from "../lib/household";
+import {
+  draftSchema,
+  blankHousehold,
+  cleanDraft,
+  prepareScenario,
+  inputLabels,
+} from "../lib/input";
 import type { Candidate, AgentReply } from "../lib/household-agent";
 import "./planner.css";
 
@@ -145,15 +152,19 @@ function NumberField({
   unit = "만 원",
   onChange,
   error,
+  hint,
 }: {
   label: string;
   value: number;
   unit?: string;
   onChange: (v: number) => void;
   error?: string;
+  hint?: string;
 }) {
   const errorId = useId();
-  const display = String(Number(value.toFixed(1)));
+  const display = Number.isFinite(value)
+    ? String(Number(value.toFixed(1)))
+    : "";
   const [draft, setDraft] = useState(display);
   useEffect(() => setDraft(display), [display]);
   return (
@@ -171,6 +182,7 @@ function NumberField({
             const v = e.target.value;
             if (!/^-?\d*(\.\d?)?$/.test(v)) return;
             setDraft(v);
+            if (v === "") onChange(NaN);
             if (
               v !== "" &&
               v !== "-" &&
@@ -183,6 +195,7 @@ function NumberField({
         />
         <span>{unit}</span>
       </span>
+      {hint && <small className="yp-note">{hint}</small>}
       {error && (
         <small id={errorId} className="yp-error">
           {error}
@@ -378,10 +391,27 @@ function RobotIcon({ size = 28 }: { size?: number }) {
     </svg>
   );
 }
-type Message = { question: string; reply: AgentReply; snapshot: string };
+type Origin = "manual" | "chat" | "example" | "file";
+type Message = {
+  revision?: number;
+  question: string;
+  reply: AgentReply & { intake?: { patch: Partial<Household> } };
+  snapshot: string;
+};
 export default function Planner() {
-  const [h, setH] = useState<Household>({ ...example }),
-    [s, setS] = useState<Solutions>({ ...adopted });
+  const [h, setHousehold] = useState<Household>(blankHousehold),
+    [s, setS] = useState<Solutions>({
+      ...none,
+      homeYear: new Date().getFullYear(),
+    });
+  const revision = useRef(0);
+  const [origins, setOrigins] = useState<
+    Partial<Record<keyof Household, Origin>>
+  >({});
+  function setH(action: Household | ((v: Household) => Household)) {
+    revision.current++;
+    setHousehold(action);
+  }
   const [exampleInfo, setExampleInfo] = useState(false);
   const [settings, setSettings] = useState(true),
     [ai, setAI] = useState(false),
@@ -393,7 +423,11 @@ export default function Planner() {
     [busy, setBusy] = useState(false),
     [aiError, setAIError] = useState(""),
     [messages, setMessages] = useState<Message[]>([]),
-    [undo, setUndo] = useState<{ h: Household; s: Solutions } | null>(null),
+    [undo, setUndo] = useState<{
+      h: Household;
+      s: Solutions;
+      origins?: Partial<Record<keyof Household, Origin>>;
+    } | null>(null),
     [applied, setApplied] = useState("");
   const abort = useRef<AbortController | null>(null),
     sending = useRef(false),
@@ -440,11 +474,14 @@ export default function Planner() {
   const snapshot = JSON.stringify({ h, s }),
     snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
+  const prepared = prepareScenario(h, s);
   const result = useMemo(() => {
     try {
+      const ready = prepareScenario(h, s).household;
+      if (!ready) return null;
       return {
-        before: calculate(h, none, false),
-        after: calculate(h, s, true),
+        before: calculate(ready, none, false),
+        after: calculate(ready, s, true),
       };
     } catch {
       return null;
@@ -454,6 +491,7 @@ export default function Planner() {
     planValidation = solutionSchema.safeParse(s);
   const update = (key: keyof Household, value: string | number) => {
     setH((v) => ({ ...v, [key]: value }));
+    setOrigins((v) => ({ ...v, [key]: "manual" }));
     setNotice("");
     setApplied("");
     setUndo(null);
@@ -466,11 +504,14 @@ export default function Planner() {
   function field([key, label, unit]: FieldSpec) {
     const issues = validation.success ? [] : validation.error.issues;
     const issue = issues.find((i) => i.path[0] === key);
-    const invalid = Boolean(issue);
+    const invalid =
+      Boolean(issue) &&
+      (typeof h[key] === "number" ? Number.isFinite(h[key]) : Boolean(h[key]));
     const suffix = unit || "만 원",
       scale = unit === "%" ? 100 : 1;
-    const error =
-      issue?.code === "too_small"
+    const error = !invalid
+      ? undefined
+      : issue?.code === "too_small"
         ? `${fmt(Number(issue.minimum) * scale)}${suffix} 이상으로 입력해 주세요.`
         : issue?.code === "too_big"
           ? `${fmt(Number(issue.maximum) * scale)}${suffix} 이하로 입력해 주세요.`
@@ -490,6 +531,9 @@ export default function Planner() {
             onChange={(e) => update(key, e.target.value)}
             aria-invalid={invalid}
           />
+          {origins[key] === "example" && (
+            <small className="yp-note">예시에서 채운 값</small>
+          )}
         </label>
       );
     const value = h[key] as number;
@@ -501,17 +545,30 @@ export default function Planner() {
         unit={unit}
         onChange={(v) => update(key, unit === "%" ? v / 100 : v)}
         error={error}
+        hint={origins[key] === "example" ? "예시에서 채운 값" : undefined}
       />
     );
   }
   function resetExample() {
     abort.current?.abort();
+    setUndo({ h, s, origins });
     setH({ ...example });
+    setOrigins(
+      Object.fromEntries(Object.keys(example).map((k) => [k, "example"])),
+    );
     setS({ ...adopted });
     setNotice("권 부장 부부의 정보와 보고서 기본 계획을 불러왔어요.");
     setFileError("");
     setApplied("");
+  }
+  function restoreInput() {
+    if (!undo) return;
+    setH(undo.h);
+    setS(undo.s);
+    setOrigins(undo.origins || {});
     setUndo(null);
+    setApplied("");
+    setNotice("이전 입력으로 되돌렸어요.");
   }
   function showSettings() {
     setAI(false);
@@ -523,20 +580,18 @@ export default function Planner() {
   }
   async function ask() {
     const q = question.trim();
-    if (!q || sending.current || !result) return;
+    if (!q || sending.current) return;
     sending.current = true;
     setBusy(true);
     setAIError("");
     abort.current = new AbortController();
     const signal = abort.current.signal,
       snap = snapshot;
-    const history = messages
-      .filter((m) => m.snapshot === snap)
-      .slice(-5)
-      .flatMap((m) => [
-        { role: "user" as const, content: m.question },
-        { role: "assistant" as const, content: m.reply.answer.slice(0, 6000) },
-      ]);
+    const requestRevision = revision.current;
+    const history = messages.slice(-5).flatMap((m) => [
+      { role: "user" as const, content: m.question },
+      { role: "assistant" as const, content: m.reply.answer.slice(0, 6000) },
+    ]);
     try {
       const response = await fetch("/api/agent", {
         method: "POST",
@@ -546,7 +601,8 @@ export default function Planner() {
         },
         body: JSON.stringify({
           question: q,
-          household: h,
+          operation: result ? "analyze" : "collect",
+          household: cleanDraft(h),
           solutions: s,
           history,
           previousCandidates: messages
@@ -562,7 +618,10 @@ export default function Planner() {
         throw Error(body.error || "AI 연결을 확인해 주세요.");
       }
       if (signal.aborted) return;
-      setMessages((m) => [...m, { question: q, reply: body, snapshot: snap }]);
+      setMessages((m) => [
+        ...m,
+        { question: q, reply: body, snapshot: snap, revision: requestRevision },
+      ]);
       setQuestion("");
     } catch (e) {
       if (signal.aborted)
@@ -587,8 +646,23 @@ export default function Planner() {
       setAIError("제안된 조건을 적용할 수 없어요. 다시 분석해 주세요.");
       return;
     }
-    setUndo({ h, s });
-    setH(nextH.data);
+    setUndo({ h, s, origins });
+    const baseline = prepareScenario(h, s).household;
+    if (!baseline) return;
+    const changed = Object.keys(nextH.data).filter(
+      (k) =>
+        nextH.data[k as keyof Household] !== baseline[k as keyof Household],
+    );
+    setH((v) => ({
+      ...v,
+      ...Object.fromEntries(
+        changed.map((k) => [k, nextH.data[k as keyof Household]]),
+      ),
+    }));
+    setOrigins((v) => ({
+      ...v,
+      ...Object.fromEntries(changed.map((k) => [k, "chat"])),
+    }));
     setS(nextS.data);
     setApplied(c.name);
     setTab("result");
@@ -682,8 +756,43 @@ export default function Planner() {
             <p>정보를 확인하고, 준비 방법을 골라 결과를 비교해 보세요.</p>
           </div>
         </section>
+        {!result && (
+          <section className="yp-card yp-onboarding">
+            <h2>어떤 방법으로 정보를 입력할까요?</h2>
+            <p>
+              대화와 직접 입력을 자유롭게 오갈 수 있어요. 예시 정보는 아래
+              버튼을 눌렀을 때만 채워져요.
+            </p>
+            <div className="yp-actions">
+              <button className="yp-primary" onClick={showAI}>
+                대화로 정보 입력
+              </button>
+              <button onClick={showSettings}>직접 정보 입력</button>
+            </div>
+            <p className="yp-note">
+              확인할 정보:{" "}
+              {prepared.missing.map((k) => inputLabels[k] || k).join(" · ") ||
+                "입력 범위와 계산 기간"}
+            </p>
+          </section>
+        )}
         <div className="yp-start">
           <div className="yp-example-actions">
+            <button
+              className="yp-text-button"
+              onClick={() => {
+                abort.current?.abort();
+                setUndo({ h, s, origins });
+                setH(blankHousehold());
+                setS({ ...none, homeYear: new Date().getFullYear() });
+                setOrigins({});
+                setMessages([]);
+                setQuestion("");
+                setNotice("입력을 새로 시작해요.");
+              }}
+            >
+              새로 입력
+            </button>
             <button className="yp-example-button" onClick={resetExample}>
               권 부장 부부 예시 넣기
             </button>
@@ -762,7 +871,10 @@ export default function Planner() {
         )}
         {notice && (
           <div className="yp-notice" role="status">
-            {notice}
+            <span>{notice}</span>
+            {undo && (
+              <button onClick={restoreInput}>이전 입력으로 되돌리기</button>
+            )}
             <button aria-label="알림 닫기" onClick={() => setNotice("")}>
               ×
             </button>
@@ -817,6 +929,29 @@ export default function Planner() {
                       {g.fields.map(field)}
                     </details>
                   ))}
+                  {(s.job || s.benefits || s.catchup) && (
+                    <details className="yp-input-group" open>
+                      <summary>선택한 준비 방법의 정보</summary>
+                      {(s.job
+                        ? ([["jobIncome", "재취업 월급"]] as FieldSpec[])
+                        : []
+                      ).map(field)}
+                      {(s.benefits
+                        ? ([
+                            ["benefit", "구직급여 월액"],
+                            ["benefitMonths", "구직급여 기간", "개월"],
+                          ] as FieldSpec[])
+                        : []
+                      ).map(field)}
+                      {(s.catchup
+                        ? ([
+                            ["catchupCost", "추납 비용"],
+                            ["catchupPension", "추납 후 배우자 월 연금"],
+                          ] as FieldSpec[])
+                        : []
+                      ).map(field)}
+                    </details>
+                  )}
                   <details className="yp-input-group">
                     <summary>
                       계산 가정과 추가 지출<span>⌄</span>
@@ -841,7 +976,12 @@ export default function Planner() {
                           save(
                             "영플래너_조건.json",
                             JSON.stringify(
-                              { version, household: h, solutions: s },
+                              {
+                                version,
+                                inputFormat: 2,
+                                household: cleanDraft(h),
+                                solutions: s,
+                              },
                               null,
                               2,
                             ),
@@ -869,6 +1009,11 @@ export default function Planner() {
                                 ),
                                 nextS = solutionSchema.parse(value.solutions);
                               setH(nextH);
+                              setOrigins(
+                                Object.fromEntries(
+                                  Object.keys(nextH).map((k) => [k, "file"]),
+                                ),
+                              );
                               setS(nextS);
                               setFileError("");
                               setNotice("저장한 조건을 불러왔어요.");
@@ -906,7 +1051,7 @@ export default function Planner() {
             </>
           )}
           <div id="yp-analysis" className="yp-analysis" tabIndex={-1}>
-            {!result && (
+            {!result && prepared.missing.length === 0 && (
               <div className="yp-card yp-error" role="alert">
                 <h2>입력 정보를 확인해 주세요</h2>
                 <p>
@@ -1450,7 +1595,11 @@ export default function Planner() {
                       <span>
                         <RobotIcon size={28} />
                       </span>
-                      <h3>조건을 바꿔 비교해 볼까요?</h3>
+                      <h3>
+                        {result
+                          ? "조건을 바꿔 비교해 볼까요?"
+                          : "은퇴 준비 정보를 함께 정리해요"}
+                      </h3>
                       <p>
                         특정 달의 지출을 살펴보고,
                         <br />
@@ -1458,8 +1607,15 @@ export default function Planner() {
                       </p>
                       <div className="yp-suggestions">
                         {[
-                          "지금보다 마지막에 돈이 더 많이 남는 계획을 찾아줘",
-                          "준비 전에는 왜 돈이 부족해져?",
+                          ...(result
+                            ? [
+                                "지금보다 마지막에 돈이 더 많이 남는 계획을 찾아줘",
+                                "준비 전에는 왜 돈이 부족해져?",
+                              ]
+                            : [
+                                "내 정보 입력을 도와줘. 필요한 것부터 하나씩 물어봐 줘.",
+                                "예금과 대출부터 알려줄게. 무엇이 필요해?",
+                              ]),
                         ].map((q) => (
                           <button
                             key={q}
@@ -1478,6 +1634,73 @@ export default function Planner() {
                     <article className="yp-exchange" key={i}>
                       <p className="yp-user-message">{m.question}</p>
                       <div className="yp-agent-message">
+                        {m.reply.intake &&
+                          Object.keys(m.reply.intake.patch).length > 0 && (
+                            <div className="yp-candidate">
+                              <h3>입력 정보 확인</h3>
+                              <ul>
+                                {Object.entries(m.reply.intake.patch).map(
+                                  ([k, v]) => (
+                                    <li key={k}>
+                                      {inputLabels[k as keyof Household] ||
+                                        fieldNames[k] ||
+                                        k}
+                                      : {householdValue(v, k)}
+                                    </li>
+                                  ),
+                                )}
+                              </ul>
+                              <button
+                                className="yp-primary"
+                                disabled={
+                                  m.revision !== revision.current ||
+                                  m.snapshot !== snapshot ||
+                                  !Object.keys(m.reply.intake.patch).length
+                                }
+                                onClick={() => {
+                                  if (
+                                    snapshotRef.current !== m.snapshot ||
+                                    m.revision !== revision.current
+                                  )
+                                    return;
+                                  setUndo({ h, s, origins });
+                                  setH((v) => ({
+                                    ...v,
+                                    ...m.reply.intake!.patch,
+                                  }));
+                                  setOrigins((v) => ({
+                                    ...v,
+                                    ...Object.fromEntries(
+                                      Object.keys(m.reply.intake!.patch).map(
+                                        (k) => [k, "chat"],
+                                      ),
+                                    ),
+                                  }));
+                                  setNotice(
+                                    "대화에서 확인한 정보를 반영했어요. 직접 입력에서도 수정할 수 있어요.",
+                                  );
+                                }}
+                              >
+                                {Object.entries(m.reply.intake.patch).every(
+                                  ([k, v]) =>
+                                    h[k as keyof Household] === v &&
+                                    origins[k as keyof Household] === "chat",
+                                )
+                                  ? "반영된 정보"
+                                  : "정리한 정보 반영"}
+                              </button>
+                              {m.snapshot !== snapshot &&
+                                !Object.entries(m.reply.intake.patch).every(
+                                  ([k, v]) => h[k as keyof Household] === v,
+                                ) && (
+                                  <p className="yp-note">
+                                    입력 조건이 변경됐어요. 필요한 내용은 현재
+                                    값으로 다시 정리해 주세요.
+                                  </p>
+                                )}
+                            </div>
+                          )}
+
                         <strong>✦ 챗봇</strong>
                         {m.snapshot !== snapshot &&
                           !m.reply.candidates.some(
@@ -1498,16 +1721,20 @@ export default function Planner() {
                           const candidateApplied =
                             JSON.stringify({ h: c.household, s: c.plan }) ===
                             snapshot;
+                          const prior = JSON.parse(m.snapshot);
+                          const previousHousehold =
+                            prepareScenario(prior.h, prior.s).household ||
+                            prior.h;
                           const diff = [
                             ...Object.keys(c.household)
                               .filter(
                                 (k) =>
                                   c.household[k as keyof Household] !==
-                                  JSON.parse(m.snapshot).h[k],
+                                  previousHousehold[k],
                               )
                               .map(
                                 (k) =>
-                                  `${fieldNames[k] || k}: ${householdValue(JSON.parse(m.snapshot).h[k], k)} → ${householdValue(c.household[k as keyof Household], k)}`,
+                                  `${fieldNames[k] || k}: ${householdValue(previousHousehold[k], k)} → ${householdValue(c.household[k as keyof Household], k)}`,
                               ),
                             ...Object.keys(c.plan)
                               .filter(
@@ -1575,7 +1802,9 @@ export default function Planner() {
                   ))}
                   {busy && (
                     <p className="yp-thinking" role="status">
-                      ✦ 조건을 확인하고 필요한 계산을 진행하고 있어요…
+                      {result
+                        ? "✦ 조건을 확인하고 필요한 계산을 진행하고 있어요…"
+                        : "✦ 알려주신 정보를 정리하고 있어요…"}
                     </p>
                   )}
                   {aiError && (
@@ -1607,6 +1836,7 @@ export default function Planner() {
                     <button
                       onClick={() => {
                         setH(undo.h);
+                        setOrigins(undo.origins || {});
                         setS(undo.s);
                         setUndo(null);
                         setApplied("");
@@ -1657,7 +1887,7 @@ export default function Planner() {
                     ) : (
                       <button
                         className="yp-primary"
-                        disabled={!question.trim() || !result}
+                        disabled={!question.trim()}
                       >
                         보내기 ↑
                       </button>

@@ -1329,3 +1329,13 @@
     padding: 18px 16px;
   }
 }
+
+.yp-onboarding {
+  margin-bottom: 20px;
+}
+.yp-onboarding > p {
+  margin-top: 10px;
+}
+.yp-onboarding .yp-note {
+  margin-top: 16px;
+}
