@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { z } from "zod";
 import { withTransientRetry } from "./ai-reliability";
+import type { Completion } from "./model-router";
 import {
   calculate,
   householdSchema,
@@ -232,6 +233,7 @@ export async function runHouseholdAgent(
     unavailableFields?: (keyof Household)[];
   },
   signal: AbortSignal,
+  complete?: Completion,
 ): Promise<AgentReply> {
   const { household: h, solutions: s } = input;
   const descriptions = {
@@ -272,25 +274,25 @@ export async function runHouseholdAgent(
   };
   let calls = 0;
   for (let round = 0; round < 4; round++) {
-    const response = await withTransientRetry(
-      () =>
-        client.chat.completions.create(
-          {
-            model,
-            messages: [...messages],
-            tools,
-            tool_choice:
-              round === 0
-                ? "required"
-                : round === 3 || calls >= 6
-                  ? "none"
-                  : "auto",
-            max_tokens: 2200,
-          },
-          { signal },
-        ),
-      signal,
-    );
+    const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming =
+      {
+        model,
+        messages: [...messages],
+        tools,
+        tool_choice:
+          round === 0
+            ? "required"
+            : round === 3 || calls >= 6
+              ? "none"
+              : "auto",
+        max_tokens: 2200,
+      };
+    const response = complete
+      ? await complete(params)
+      : await withTransientRetry(
+          () => client.chat.completions.create(params, { signal }),
+          signal,
+        );
     const msg = response.choices[0]?.message;
     if (!msg) throw Error("AI 응답이 비어 있습니다.");
     messages.push(msg);

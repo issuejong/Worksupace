@@ -15,15 +15,17 @@ import {
   inputLabels,
 } from "../../../lib/input";
 import { runHouseholdAgent } from "../../../lib/household-agent";
-import {
-  providerStatus,
-  withTransientRetry,
-} from "../../../lib/ai-reliability";
+import { providerStatus } from "../../../lib/ai-reliability";
 import {
   diagnosticFetch,
   privateFragments,
   redactDiagnostic,
 } from "../../../lib/ai-diagnostics";
+import {
+  createModelRouter,
+  groqParameters,
+  type ModelTarget,
+} from "../../../lib/model-router";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 const inputSchema = z
@@ -65,21 +67,29 @@ export async function POST(req: Request) {
   const secrets = [
     process.env.GEMINI_API_KEY,
     process.env.OPENAI_API_KEY,
+    process.env.GROQ_API_KEY,
     process.env.AI_ACCESS_TOKEN,
   ].filter((v): v is string => Boolean(v));
   const context = {
     requestId,
-    provider: process.env.GEMINI_API_KEY ? "gemini" : "openai",
+    provider: process.env.GEMINI_API_KEY
+      ? "gemini"
+      : process.env.GROQ_API_KEY
+        ? "groq"
+        : "openai",
     model: redactDiagnostic(
       process.env.GEMINI_API_KEY
         ? process.env.GEMINI_MODEL
-        : process.env.OPENAI_MODEL,
+        : process.env.GROQ_API_KEY
+          ? process.env.GROQ_MODEL || "openai/gpt-oss-120b"
+          : process.env.OPENAI_MODEL,
       secrets,
     ),
     region: process.env.VERCEL_REGION || "local",
     operation: "unknown",
   };
   let errorName: string | undefined;
+  let fallbackUsed = false;
   function respond(body: Record<string, unknown>, init: ResponseInit = {}) {
     const status = init.status || 200;
     const record = {
@@ -88,6 +98,7 @@ export async function POST(req: Request) {
       code: body.code,
       errorName,
       elapsedMs: Date.now() - started,
+      fallbackUsed,
     };
     if (status >= 400) console.error("Young Planner AI request failed", record);
     else console.info("Young Planner AI request completed", record);
@@ -110,9 +121,20 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     context.operation = parsed.data.operation;
-    const gemini = Boolean(process.env.GEMINI_API_KEY),
-      apiKey = gemini ? process.env.GEMINI_API_KEY : process.env.OPENAI_API_KEY,
-      model = gemini ? process.env.GEMINI_MODEL : process.env.OPENAI_MODEL;
+    const gemini =
+        Boolean(process.env.GEMINI_API_KEY) &&
+        (!process.env.GROQ_API_KEY || parsed.data.operation === "analyze"),
+      groq = !gemini && Boolean(process.env.GROQ_API_KEY),
+      apiKey = gemini
+        ? process.env.GEMINI_API_KEY
+        : groq
+          ? process.env.GROQ_API_KEY
+          : process.env.OPENAI_API_KEY,
+      model = gemini
+        ? process.env.GEMINI_MODEL
+        : groq
+          ? process.env.GROQ_MODEL || "openai/gpt-oss-120b"
+          : process.env.OPENAI_MODEL;
     if (!apiKey || !model)
       return respond(
         {
@@ -147,25 +169,89 @@ export async function POST(req: Request) {
       time: prev && now - prev.time < 60000 ? prev.time : now,
       count: prev && now - prev.time < 60000 ? prev.count + 1 : 1,
     });
-    const client = new OpenAI({
+    const signal = AbortSignal.any([
+      req.signal,
+      AbortSignal.timeout(parsed.data.operation === "collect" ? 22000 : 50000),
+    ]);
+    function target(
+      provider: string,
+      targetModel: string,
+      key: string,
+    ): ModelTarget & { client: OpenAI } {
+      const baseURL =
+        provider === "gemini"
+          ? "https://generativelanguage.googleapis.com/v1beta/openai/"
+          : provider === "groq"
+            ? "https://api.groq.com/openai/v1"
+            : undefined;
+      const client = new OpenAI({
+        apiKey: key,
+        ...(baseURL ? { baseURL } : {}),
+        timeout: 45000,
+        maxRetries: 0,
+        fetch: diagnosticFetch(
+          (diagnostic) =>
+            console.warn("Young Planner AI provider response", {
+              ...context,
+              ...diagnostic,
+            }),
+          [...secrets, ...privateFragments(parsed.data)],
+        ),
+      });
+      return {
+        client,
+        provider,
+        model: targetModel,
+        request: (params, attemptSignal) =>
+          client.chat.completions.create(
+            provider === "groq" ? groqParameters(params) : params,
+            { signal: attemptSignal },
+          ),
+      };
+    }
+    const primary = target(
+      gemini ? "gemini" : groq ? "groq" : "openai",
+      model,
       apiKey,
-      ...(gemini
-        ? {
-            baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
-          }
-        : {}),
-      timeout: 45000,
-      maxRetries: 0,
-      fetch: diagnosticFetch(
-        (diagnostic) =>
-          console.warn("Young Planner AI provider response", {
-            ...context,
-            ...diagnostic,
-          }),
-        [...secrets, ...privateFragments(parsed.data)],
-      ),
+    );
+    const targets: ModelTarget[] = [primary];
+    if (gemini && process.env.GROQ_API_KEY)
+      targets.push(
+        target(
+          "groq",
+          process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+          process.env.GROQ_API_KEY,
+        ),
+      );
+    else if (groq && process.env.GEMINI_API_KEY) {
+      const fallback = (
+        process.env.GEMINI_FALLBACK_MODEL ?? "gemini-3.1-flash-lite"
+      ).trim();
+      if (fallback)
+        targets.push(target("gemini", fallback, process.env.GEMINI_API_KEY));
+    } else if (gemini) {
+      const fallback = (
+        process.env.GEMINI_FALLBACK_MODEL ?? "gemini-3.1-flash-lite"
+      ).trim();
+      if (fallback) targets.push(target("gemini", fallback, apiKey));
+    }
+    const router = createModelRouter({
+      targets,
+      signal,
+      timeoutMs: parsed.data.operation === "collect" ? 8000 : 12000,
+      onAttempt: (active) => {
+        context.model = redactDiagnostic(active.model, secrets);
+        context.provider = active.provider;
+      },
+      onSwitch: (event) => {
+        fallbackUsed = true;
+        console.warn("Young Planner AI model fallback", {
+          ...context,
+          ...event,
+          elapsedMs: Date.now() - started,
+        });
+      },
     });
-    const signal = AbortSignal.any([req.signal, AbortSignal.timeout(50000)]);
     // Candidate numbers from the browser are not trusted: only full inputs are reused and recalculated by tools.
     const input = {
       ...parsed.data,
@@ -174,26 +260,19 @@ export async function POST(req: Request) {
       ),
     };
     if (input.operation === "collect") {
-      const response = await withTransientRetry(
-        () =>
-          client.chat.completions.create(
-            {
-              model,
-              max_tokens: 1600,
-              response_format: { type: "json_object" },
-              messages: [
-                {
-                  role: "system",
-                  content: `한국어 은퇴 준비 입력 상담. 오늘 한국 날짜 ${new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" })}. JSON {"answer":"짧은 상담과 다음 질문","patch":{}}로 답한다. 허용 필드 ${JSON.stringify(Object.keys(draftSchema.shape))}, 이름 ${JSON.stringify(inputLabels)}. 현재 입력 ${JSON.stringify(input.household)}. 최신 사용자 발언에 명시된 정보만 patch에 넣는다. 금액은 만원, 비율은 소수, 날짜는 YYYY-MM. 사용자 개인정보나 누락값을 추정하거나 보고서 예시값을 채우지 않는다. 금액·세전/세후·배우자·월/연·합계 포함 여부·월이 모호하면 먼저 물어보고 해당 값을 patch에 넣지 않는다. 모름은 0이 아니다. 미확인 항목은 patch에서 키 자체를 생략한다. null이나 빈 문자열을 보내지 않는다. 추가 질문은 한번에 1~2개만 한다. 추출한 값은 사용자의 반영 버튼으로만 적용된다. 필수 정보: 본인/배우자 출생연월, 은퇴월, 세후소득, 배우자근로종료월(소득있는경우), 금융자산, 대출잔액(있으면 금리/잔여개월), 월생활비, 세후퇴직금, 부부 예상 월연금. 이미 있는 값은 반복해 묻지 않는다. 계산과 자격 판정은 하지 않는다.`,
-                },
-                ...input.history,
-                { role: "user", content: input.question },
-              ],
-            },
-            { signal },
-          ),
-        signal,
-      );
+      const response = await router.complete({
+        model,
+        max_tokens: 1600,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `한국어 은퇴 준비 입력 상담. 오늘 한국 날짜 ${new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" })}. JSON {"answer":"짧은 상담과 다음 질문","patch":{}}로 답한다. 허용 필드 ${JSON.stringify(Object.keys(draftSchema.shape))}, 이름 ${JSON.stringify(inputLabels)}. 현재 입력 ${JSON.stringify(input.household)}. 최신 사용자 발언에 명시된 정보만 patch에 넣는다. 금액은 만원, 비율은 소수, 날짜는 YYYY-MM. 사용자 개인정보나 누락값을 추정하거나 보고서 예시값을 채우지 않는다. 금액·세전/세후·배우자·월/연·합계 포함 여부·월이 모호하면 먼저 물어보고 해당 값을 patch에 넣지 않는다. 모름은 0이 아니다. 미확인 항목은 patch에서 키 자체를 생략한다. null이나 빈 문자열을 보내지 않는다. 추가 질문은 한번에 1~2개만 한다. 추출한 값은 사용자의 반영 버튼으로만 적용된다. 필수 정보: 본인/배우자 출생연월, 은퇴월, 세후소득, 배우자근로종료월(소득있는경우), 금융자산, 대출잔액(있으면 금리/잔여개월), 월생활비, 세후퇴직금, 부부 예상 월연금. 이미 있는 값은 반복해 묻지 않는다. 계산과 자격 판정은 하지 않는다.`,
+          },
+          ...input.history,
+          { role: "user", content: input.question },
+        ],
+      });
       const proposal = parseIntakeResponse(
         response.choices[0]?.message.content || "{}",
       );
@@ -219,7 +298,7 @@ export async function POST(req: Request) {
       );
     return respond(
       await runHouseholdAgent(
-        client,
+        primary.client,
         model,
         {
           ...input,
@@ -229,6 +308,7 @@ export async function POST(req: Request) {
           ).filter((k) => input.household[k] === undefined),
         },
         signal,
+        router.complete,
       ),
     );
   } catch (e) {
@@ -252,7 +332,7 @@ export async function POST(req: Request) {
       return respond(
         {
           error:
-            "AI 제공자가 일시적으로 요청을 처리하지 못했어요. 자동으로 한 번 재시도했지만 연결되지 않았어요. 잠시 후 다시 보내주세요.",
+            "AI 제공자가 일시적으로 요청을 처리하지 못했어요. 잠시 후 다시 보내주세요. 입력한 내용은 유지돼요.",
           code: "provider_unavailable",
         },
         { status: 503, headers: { "Retry-After": "5" } },

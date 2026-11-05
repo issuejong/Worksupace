@@ -139,3 +139,47 @@ it("reports provider unavailability after a single retry", async () => {
     log.mockRestore();
   }
 });
+
+it("uses Gemini backup after Groq input collection is overloaded", async () => {
+  vi.stubEnv("GEMINI_API_KEY", "test-gemini");
+  vi.stubEnv("GEMINI_MODEL", "primary-groq-routing-test");
+  vi.stubEnv("GROQ_API_KEY", "test-groq");
+  vi.stubEnv("GROQ_MODEL", "openai/gpt-oss-120b");
+  vi.stubEnv("AI_ACCESS_TOKEN", "");
+  create.mockRejectedValueOnce({ status: 503 }).mockResolvedValue({
+    choices: [
+      {
+        message: {
+          content: JSON.stringify({
+            answer: "월 생활비도 알려주세요.",
+            patch: { assets: 6000 },
+          }),
+        },
+      },
+    ],
+  });
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const response = await POST(
+      new Request("http://local/api/agent", {
+        method: "POST",
+        headers: { "x-forwarded-for": "router-groq-test" },
+        body: JSON.stringify({
+          operation: "collect",
+          question: "예금 6천",
+          household: {},
+          solutions: none,
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(create.mock.calls.map((c) => c[0].model)).toEqual([
+      "openai/gpt-oss-120b",
+      "gemini-3.1-flash-lite",
+    ]);
+    expect(create.mock.calls[0][0].parallel_tool_calls).toBe(false);
+    expect((await response.json()).intake.patch).toEqual({ assets: 6000 });
+  } finally {
+    log.mockRestore();
+  }
+});
