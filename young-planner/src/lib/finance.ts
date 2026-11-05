@@ -76,6 +76,8 @@ export type Row = {
   realAssets: number;
   net: number;
   loan: number;
+  interest: number;
+  components: Record<string, number>;
 };
 export type Result = {
   rows: Row[];
@@ -87,19 +89,26 @@ export type Result = {
 };
 export type Params = Record<string, number>;
 const dec = (n: number) => new Decimal(n);
-export function engine(p: Params, shock = 0, shockYear = 2030): Result {
+export function engine(
+  p: Params,
+  shock = 0,
+  shockYear = 2030,
+  range = { start: 2026 * 12 + 11, end: 2060 * 12 + 12, reserve: 1512.726559 },
+): Result {
   let assets = dec(p[25]),
     loan = dec(p[22]);
   const rows: Row[] = [];
-  for (let i = 0; i < 410; i++) {
-    const t = 2026 * 12 + 11 + i,
+  for (let i = 0; i <= range.end - range.start; i++) {
+    const t = range.start + i,
       year = Math.floor((t - 1) / 12),
       month = ((t - 1) % 12) + 1;
     const inf = dec(1 + p[5]).pow(year - p[4]);
     const husband = t <= p[8] ? p[13] : 0,
       retire = t === p[8] + 1 ? p[15] : 0;
     const wife =
-      year <= p[11] ? dec(p[14]).mul(dec(1 + p[6]).pow(year - p[4])) : dec(0);
+      t <= (p[45] ?? p[11] * 12 + 12)
+        ? dec(p[14]).mul(dec(1 + p[6]).pow(year - p[4]))
+        : dec(0);
     const hp = t >= p[9] ? inf.mul(p[19]) : dec(0),
       wp = t >= p[10] ? inf.mul(p[p[43] === 1 ? 21 : 20]) : dec(0);
     const ui = p[40] === 1 && t > p[8] && t <= p[8] + p[32] ? p[31] : 0;
@@ -118,7 +127,7 @@ export function engine(p: Params, shock = 0, shockYear = 2030): Result {
     const extra = payoff ? loan : dec(0);
     loan = loan.minus(regular.minus(li)).minus(extra);
     const health =
-      t <= p[8] || employed || year <= p[11]
+      t <= p[8] || employed || t <= (p[45] ?? p[11] * 12 + 12)
         ? dec(0)
         : Decimal.max(inf.mul(p[28]), hp.plus(wp).mul(p[29]).mul(p[26]))
             .plus(inf.mul(p[30]))
@@ -150,9 +159,27 @@ export function engine(p: Params, shock = 0, shockYear = 2030): Result {
       realAssets: assets.div(inf).toNumber(),
       net: income.minus(expenses).toNumber(),
       loan: loan.toNumber(),
+      interest: interest.toNumber(),
+      components: {
+        본인급여: Number(husband),
+        퇴직금: Number(retire),
+        배우자급여: wife.toNumber(),
+        본인연금: hp.toNumber(),
+        배우자연금: wp.toNumber(),
+        구직급여: Number(ui),
+        재취업: job.toNumber(),
+        주택연금: Number(home),
+        운용수익: interest.toNumber(),
+        생활비: living.toNumber(),
+        자녀지원: Number(child),
+        대출상환: regular.plus(extra).toNumber(),
+        건강보험: health.toNumber(),
+        추납: Number(backpay),
+        일시지출: year === shockYear && month === 1 ? shock : 0,
+      },
     });
   }
-  const reserve = 1512.726559,
+  const reserve = range.reserve,
     minAssets = Math.min(...rows.map((r) => r.realAssets));
   return {
     rows,
