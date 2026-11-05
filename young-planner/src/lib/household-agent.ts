@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { z } from "zod";
+import { withTransientRetry } from "./ai-reliability";
 import {
   calculate,
   householdSchema,
@@ -271,20 +272,24 @@ export async function runHouseholdAgent(
   };
   let calls = 0;
   for (let round = 0; round < 4; round++) {
-    const response = await client.chat.completions.create(
-      {
-        model,
-        messages: [...messages],
-        tools,
-        tool_choice:
-          round === 0
-            ? "required"
-            : round === 3 || calls >= 6
-              ? "none"
-              : "auto",
-        max_tokens: 2200,
-      },
-      { signal },
+    const response = await withTransientRetry(
+      () =>
+        client.chat.completions.create(
+          {
+            model,
+            messages: [...messages],
+            tools,
+            tool_choice:
+              round === 0
+                ? "required"
+                : round === 3 || calls >= 6
+                  ? "none"
+                  : "auto",
+            max_tokens: 2200,
+          },
+          { signal },
+        ),
+      signal,
     );
     const msg = response.choices[0]?.message;
     if (!msg) throw Error("AI 응답이 비어 있습니다.");

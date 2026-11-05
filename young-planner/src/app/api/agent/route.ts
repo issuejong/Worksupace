@@ -7,12 +7,17 @@ import {
 } from "../../../lib/household";
 import {
   draftSchema,
-  proposalSchema,
+  parseIntakeResponse,
+  IntakeResponseError,
   blankHousehold,
   prepareScenario,
   inputLabels,
 } from "../../../lib/input";
 import { runHouseholdAgent } from "../../../lib/household-agent";
+import {
+  providerStatus,
+  withTransientRetry,
+} from "../../../lib/ai-reliability";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 const inputSchema = z
@@ -111,24 +116,28 @@ export async function POST(req: Request) {
       ),
     };
     if (input.operation === "collect") {
-      const response = await client.chat.completions.create(
-        {
-          model,
-          max_tokens: 1600,
-          response_format: { type: "json_object" },
-          messages: [
+      const response = await withTransientRetry(
+        () =>
+          client.chat.completions.create(
             {
-              role: "system",
-              content: `한국어 은퇴 준비 입력 상담. 오늘 한국 날짜 ${new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" })}. JSON {"answer":"짧은 상담과 다음 질문","patch":{}}로 답한다. 허용 필드 ${JSON.stringify(Object.keys(draftSchema.shape))}, 이름 ${JSON.stringify(inputLabels)}. 현재 입력 ${JSON.stringify(input.household)}. 최신 사용자 발언에 명시된 정보만 patch에 넣는다. 금액은 만원, 비율은 소수, 날짜는 YYYY-MM. 사용자 개인정보나 누락값을 추정하거나 보고서 예시값을 채우지 않는다. 금액·세전/세후·배우자·월/연·합계 포함 여부·월이 모호하면 먼저 물어보고 해당 값을 patch에 넣지 않는다. 모름은 0이 아니다. 추가 질문은 한번에 1~2개만 한다. 추출한 값은 사용자의 반영 버튼으로만 적용된다. 필수 정보: 본인/배우자 출생연월, 은퇴월, 세후소득, 배우자근로종료월(소득있는경우), 금융자산, 대출잔액(있으면 금리/잔여개월), 월생활비, 세후퇴직금, 부부 예상 월연금. 이미 있는 값은 반복해 묻지 않는다. 계산과 자격 판정은 하지 않는다.`,
+              model,
+              max_tokens: 1600,
+              response_format: { type: "json_object" },
+              messages: [
+                {
+                  role: "system",
+                  content: `한국어 은퇴 준비 입력 상담. 오늘 한국 날짜 ${new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" })}. JSON {"answer":"짧은 상담과 다음 질문","patch":{}}로 답한다. 허용 필드 ${JSON.stringify(Object.keys(draftSchema.shape))}, 이름 ${JSON.stringify(inputLabels)}. 현재 입력 ${JSON.stringify(input.household)}. 최신 사용자 발언에 명시된 정보만 patch에 넣는다. 금액은 만원, 비율은 소수, 날짜는 YYYY-MM. 사용자 개인정보나 누락값을 추정하거나 보고서 예시값을 채우지 않는다. 금액·세전/세후·배우자·월/연·합계 포함 여부·월이 모호하면 먼저 물어보고 해당 값을 patch에 넣지 않는다. 모름은 0이 아니다. 미확인 항목은 patch에서 키 자체를 생략한다. null이나 빈 문자열을 보내지 않는다. 추가 질문은 한번에 1~2개만 한다. 추출한 값은 사용자의 반영 버튼으로만 적용된다. 필수 정보: 본인/배우자 출생연월, 은퇴월, 세후소득, 배우자근로종료월(소득있는경우), 금융자산, 대출잔액(있으면 금리/잔여개월), 월생활비, 세후퇴직금, 부부 예상 월연금. 이미 있는 값은 반복해 묻지 않는다. 계산과 자격 판정은 하지 않는다.`,
+                },
+                ...input.history,
+                { role: "user", content: input.question },
+              ],
             },
-            ...input.history,
-            { role: "user", content: input.question },
-          ],
-        },
-        { signal },
+            { signal },
+          ),
+        signal,
       );
-      const proposal = proposalSchema.parse(
-        JSON.parse(response.choices[0]?.message.content || "{}"),
+      const proposal = parseIntakeResponse(
+        response.choices[0]?.message.content || "{}",
       );
       return Response.json({
         answer: proposal.answer,
@@ -177,18 +186,54 @@ export async function POST(req: Request) {
     }
     console.error("Young Planner AI request failed", {
       name: e instanceof Error ? e.name : "UnknownError",
-      status: e instanceof OpenAI.APIError ? e.status : undefined,
+      status: providerStatus(e),
       message: message.slice(0, 1000),
     });
-    if (e instanceof OpenAI.APIError && e.status === 429)
+    if (providerStatus(e) === 429)
       return Response.json(
         { error: "AI 사용량 한도에 도달했어요. 잠시 후 다시 시도해 주세요." },
         { status: 429 },
       );
+    if ([500, 502, 503, 504].includes(providerStatus(e) || 0))
+      return Response.json(
+        {
+          error:
+            "AI 제공자가 일시적으로 요청을 처리하지 못했어요. 자동으로 한 번 재시도했지만 연결되지 않았어요. 잠시 후 다시 보내주세요.",
+          code: "provider_unavailable",
+        },
+        { status: 503, headers: { "Retry-After": "5" } },
+      );
+    if (e instanceof IntakeResponseError)
+      return Response.json(
+        {
+          error:
+            "AI가 정보를 읽을 수 있는 형식으로 정리하지 못했어요. 입력한 내용은 유지돼요. 다시 보내주세요.",
+          code: "invalid_ai_response",
+        },
+        { status: 502 },
+      );
+    if (
+      e instanceof Error &&
+      [
+        "AbortError",
+        "TimeoutError",
+        "APIUserAbortError",
+        "APIConnectionTimeoutError",
+      ].includes(e.name)
+    )
+      return Response.json(
+        {
+          error:
+            "AI 응답 시간이 초과됐어요. 입력한 내용은 유지돼요. 잠시 후 다시 보내주세요.",
+          code: "ai_timeout",
+        },
+        { status: 504 },
+      );
     return Response.json(
       {
         error:
-          "AI 분석을 완료하지 못했어요. 연결 상태를 확인하고 다시 시도해 주세요.",
+          "AI 분석을 완료하지 못했어요. 입력한 내용은 유지돼요. 다시 시도해 주세요.",
+        code: "analysis_failed",
       },
       { status: 502 },
     );

@@ -66,3 +66,63 @@ it("does not execute analysis with incomplete information", async () => {
   expect(response.status).toBe(400);
   expect(create).not.toHaveBeenCalled();
 });
+
+it("returns a usable card when the model includes unknown dates", async () => {
+  vi.stubEnv("GEMINI_API_KEY", "test-only");
+  vi.stubEnv("GEMINI_MODEL", "test");
+  vi.stubEnv("AI_ACCESS_TOKEN", "");
+  create.mockResolvedValue({
+    choices: [
+      {
+        message: {
+          content: JSON.stringify({
+            answer: "배우자 정보는 나중에 알려주세요.",
+            patch: { assets: 6000, spouseBirth: null, spouseEnd: "" },
+          }),
+        },
+      },
+    ],
+  });
+  const response = await POST(
+    new Request("http://local/api/agent", {
+      method: "POST",
+      body: JSON.stringify({
+        operation: "collect",
+        question: "예금은 6천이고 배우자 정보는 몰라요",
+        household: {},
+        solutions: none,
+      }),
+    }),
+  );
+  expect(response.status).toBe(200);
+  expect((await response.json()).intake.patch).toEqual({ assets: 6000 });
+});
+
+it("reports provider unavailability after a single retry", async () => {
+  vi.stubEnv("GEMINI_API_KEY", "test-only");
+  vi.stubEnv("GEMINI_MODEL", "test");
+  vi.stubEnv("AI_ACCESS_TOKEN", "");
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  create.mockRejectedValue(
+    Object.assign(new Error("provider unavailable"), { status: 503 }),
+  );
+  try {
+    const response = await POST(
+      new Request("http://local/api/agent", {
+        method: "POST",
+        body: JSON.stringify({
+          operation: "collect",
+          question: "도와줘",
+          household: {},
+          solutions: none,
+        }),
+      }),
+    );
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Retry-After")).toBe("5");
+    expect((await response.json()).code).toBe("provider_unavailable");
+    expect(create).toHaveBeenCalledTimes(2);
+  } finally {
+    log.mockRestore();
+  }
+});

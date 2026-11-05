@@ -1,9 +1,5 @@
 import { z } from "zod";
-import {
-  Household,
-  Solutions,
-  householdSchema,
-} from "./household";
+import { Household, Solutions, householdSchema } from "./household";
 export const draftSchema = z.object(householdSchema.shape).partial().strict();
 export const inputLabels: Partial<Record<keyof Household, string>> = {
   birth: "본인 출생연월",
@@ -118,3 +114,42 @@ export function prepareScenario(h: Household, s: Solutions) {
 export const proposalSchema = z
   .object({ answer: z.string().min(1).max(2500), patch: draftSchema })
   .strict();
+
+export class IntakeResponseError extends Error {}
+
+export function parseIntakeResponse(content: string) {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(content);
+  } catch {
+    throw new IntakeResponseError("AI 응답 형식이 올바르지 않습니다.");
+  }
+  const envelope = z
+    .object({
+      answer: z.string().trim().min(1).max(2500),
+      patch: z.record(z.string(), z.unknown()).nullish(),
+    })
+    .safeParse(raw);
+  if (!envelope.success)
+    throw new IntakeResponseError("AI 응답을 읽을 수 없습니다.");
+  const patch: Partial<Household> = {};
+  const invalid: string[] = [];
+  for (const [key, value] of Object.entries(envelope.data.patch || {})) {
+    if (!Object.hasOwn(draftSchema.shape, key)) continue;
+    // Unknown values are absent, never zero or an invented month.
+    if (
+      value === null ||
+      value === undefined ||
+      (typeof value === "string" && !value.trim())
+    )
+      continue;
+    const field = key as keyof Household;
+    const checked = draftSchema.shape[field].safeParse(value);
+    if (checked.success) Object.assign(patch, { [field]: checked.data });
+    else invalid.push(inputLabels[field] || key);
+  }
+  const answer = invalid.length
+    ? `${envelope.data.answer.slice(0, 2000)}\n\n다음 정보는 형식이나 범위를 확인해야 해서 반영하지 않았어요: ${invalid.join(" · ")}. 날짜는 연도와 월(YYYY-MM), 금액은 만 원 단위로 알려주세요.`
+    : envelope.data.answer;
+  return proposalSchema.parse({ answer, patch });
+}
