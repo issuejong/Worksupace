@@ -456,17 +456,7 @@ export default function Planner() {
   useEffect(() => {
     if (!ai) return;
     agentInput.current?.focus({ preventScroll: true });
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.isComposing) {
-        event.preventDefault();
-        setAI(false);
-      }
-    };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("keydown", closeOnEscape);
-      chatLauncher.current?.focus({ preventScroll: true });
-    };
+    return () => chatLauncher.current?.focus({ preventScroll: true });
   }, [ai]);
   useEffect(() => {
     if (thread.current) thread.current.scrollTop = thread.current.scrollHeight;
@@ -482,9 +472,6 @@ export default function Planner() {
   }, [busy]);
   const [accessToken, setAccessToken] = useState("");
   const [needsToken, setNeedsToken] = useState(false);
-  useEffect(() => {
-    if (compact && ai) setSettings(false);
-  }, [compact, ai]);
   const snapshot = JSON.stringify({ h, s }),
     snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
@@ -644,7 +631,6 @@ export default function Planner() {
     setMessages([]);
     setQuestion("");
     setSettings(false);
-    setAI(false);
     setExampleInfo(false);
     setTab("result");
     setApplied("");
@@ -653,7 +639,7 @@ export default function Planner() {
     setNotice("입력과 대화를 초기화했어요.");
   }
   function resetExample() {
-    setAI(false);
+    if (chatStart) setAI(true);
     setSettings(false);
     abort.current?.abort();
     setUndo({ h, s, origins });
@@ -676,7 +662,7 @@ export default function Planner() {
     setNotice("이전 입력으로 되돌렸어요.");
   }
   function showSettings() {
-    setAI(false);
+    if (chatStart) setAI(true);
     setSettings(true);
   }
   function showAI() {
@@ -2113,11 +2099,13 @@ export default function Planner() {
         <button
           ref={chatLauncher}
           className="yp-chat-launcher"
-          onClick={() => (ai ? setAI(false) : showAI())}
-          aria-label={ai ? "챗봇 닫기" : "챗봇 열기"}
+          onClick={() =>
+            ai ? agentInput.current?.focus({ preventScroll: true }) : showAI()
+          }
+          aria-label={ai ? "챗봇 입력으로 이동" : "챗봇 열기"}
           aria-expanded={ai}
           aria-controls="yp-agent"
-          title={ai ? "챗봇 닫기" : "은퇴 챗봇에게 물어보기"}
+          title={ai ? "챗봇 입력으로 이동" : "은퇴 챗봇에게 물어보기"}
         >
           <RobotIcon size={32} />
           <span className="yp-sr">은퇴 챗봇</span>
