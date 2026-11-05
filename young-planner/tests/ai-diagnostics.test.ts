@@ -100,3 +100,50 @@ it("does not read or record successful generated content", async () => {
   expect(record).not.toHaveBeenCalled();
   expect(await response.text()).toBe("private-answer");
 });
+
+it("extracts a Google-style array error envelope", async () => {
+  const result = await describeProviderResponse(
+    new Response(
+      JSON.stringify([
+        {
+          error: {
+            code: 503,
+            message: "The model is overloaded. Please try again later.",
+            status: "UNAVAILABLE",
+            details: [{ private: "do-not-log" }],
+          },
+        },
+      ]),
+      { status: 503 },
+    ),
+  );
+  expect(result).toMatchObject({
+    bodyKind: "json",
+    bodyShape: "array",
+    error: {
+      code: "503",
+      status: "UNAVAILABLE",
+      message: "The model is overloaded. Please try again later.",
+    },
+  });
+  expect(JSON.stringify(result)).not.toContain("do-not-log");
+});
+
+it("extracts nested errors while retaining redaction", async () => {
+  const result = await describeProviderResponse(
+    new Response(
+      JSON.stringify({
+        error: {
+          errors: [
+            { error: { code: "UNAVAILABLE", message: "private-customer" } },
+          ],
+        },
+      }),
+      { status: 503 },
+    ),
+    ["private-customer"],
+  );
+  expect(result).toMatchObject({
+    error: { code: "UNAVAILABLE", message: "[REDACTED]" },
+  });
+});

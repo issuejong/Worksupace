@@ -59,6 +59,33 @@ async function limitedBody(response: Response) {
   return { text: new TextDecoder().decode(data), bytes, truncated };
 }
 
+// Some compatible endpoints wrap errors in an array or nested error envelope.
+function providerError(
+  value: unknown,
+  depth = 0,
+): Record<string, unknown> | undefined {
+  if (depth > 5 || !value || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const entry of value.slice(0, 10)) {
+      const found = providerError(entry, depth + 1);
+      if (found) return found;
+    }
+    return;
+  }
+  const object = value as Record<string, unknown>;
+  for (const key of ["error", "errors"]) {
+    const nested = providerError(object[key], depth + 1);
+    if (nested) return nested;
+  }
+  if (
+    ["message", "code", "status", "type"].some(
+      (key) =>
+        typeof object[key] === "string" || typeof object[key] === "number",
+    )
+  )
+    return object;
+}
+
 export async function describeProviderResponse(
   response: Response,
   privateValues: string[] = [],
@@ -86,11 +113,11 @@ export async function describeProviderResponse(
     } catch {
       return { ...base, bodyKind: "text", capturedBytes: body.bytes };
     }
-    const error =
-      parsed && typeof parsed === "object" ? parsed.error || parsed : {};
+    const error = providerError(parsed) || {};
     return {
       ...base,
       bodyKind: "json",
+      bodyShape: Array.isArray(parsed) ? "array" : typeof parsed,
       capturedBytes: body.bytes,
       error: {
         code: redactDiagnostic(error.code, privateValues),

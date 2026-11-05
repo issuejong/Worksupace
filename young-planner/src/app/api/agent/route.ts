@@ -239,7 +239,7 @@ export async function POST(req: Request) {
       );
     // Free-form SDK errors can include request payloads; provider errors are
     // captured separately from the raw HTTP response with an explicit allowlist.
-    errorName = e instanceof Error ? e.constructor.name : "UnknownError";
+    errorName = e instanceof Error ? e.name : "UnknownError";
     if (providerStatus(e) === 429)
       return respond(
         {
