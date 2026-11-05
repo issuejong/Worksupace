@@ -287,7 +287,7 @@ export function calculate(
     warnings,
   };
 }
-export const fmt = (v: number) => Math.round(v).toLocaleString("ko-KR");
+export const fmt = (v: number) => v.toLocaleString("ko-KR", { maximumFractionDigits: 1 });
 export function facts(r: Simulation) {
   return {
     firstNegative: r.firstNegative ?? "없음",
