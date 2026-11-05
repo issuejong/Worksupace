@@ -354,6 +354,30 @@ function Charts({
     </section>
   );
 }
+function RobotIcon({ size = 28 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 32 32"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M16 7V4" />
+      <circle cx="16" cy="3" r="1.3" fill="currentColor" stroke="none" />
+      <rect x="5" y="8" width="22" height="18" rx="6" />
+      <path d="M5 15H2v5h3m22-5h3v5h-3" />
+      <circle cx="11.5" cy="15.5" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="20.5" cy="15.5" r="1.6" fill="currentColor" stroke="none" />
+      <path d="M12 21c2.5 1.7 5.5 1.7 8 0" />
+    </svg>
+  );
+}
 type Message = { question: string; reply: AgentReply; snapshot: string };
 export default function Planner() {
   const [h, setH] = useState<Household>({ ...example }),
@@ -362,7 +386,6 @@ export default function Planner() {
   const [settings, setSettings] = useState(true),
     [ai, setAI] = useState(false),
     [compact, setCompact] = useState(false),
-    [dockAI, setDockAI] = useState(true),
     [tab, setTab] = useState<"result" | "plan" | "basis">("result");
   const [notice, setNotice] = useState(""),
     [fileError, setFileError] = useState(""),
@@ -375,50 +398,42 @@ export default function Planner() {
   const abort = useRef<AbortController | null>(null),
     sending = useRef(false),
     thread = useRef<HTMLDivElement | null>(null),
-    agentInput = useRef<HTMLTextAreaElement | null>(null);
+    agentInput = useRef<HTMLTextAreaElement | null>(null),
+    chatLauncher = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 1100px)"),
-      dock = window.matchMedia("(min-width: 1500px)");
+    const mq = window.matchMedia("(max-width: 1100px)");
     setCompact(mq.matches);
-    setDockAI(dock.matches);
     if (mq.matches) setSettings(false);
     const resize = () => {
       setCompact(mq.matches);
-      setDockAI(dock.matches);
     };
     mq.addEventListener("change", resize);
-    dock.addEventListener("change", resize);
     return () => {
       mq.removeEventListener("change", resize);
-      dock.removeEventListener("change", resize);
       abort.current?.abort();
     };
   }, []);
   useModalPanel(settings && compact, "yp-settings", () => setSettings(false));
-  useModalPanel(ai && !dockAI, "yp-agent", () => setAI(false));
+  useEffect(() => {
+    if (!ai) return;
+    agentInput.current?.focus({ preventScroll: true });
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.isComposing) {
+        event.preventDefault();
+        setAI(false);
+      }
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("keydown", closeOnEscape);
+      chatLauncher.current?.focus({ preventScroll: true });
+    };
+  }, [ai]);
   useEffect(() => {
     if (thread.current) thread.current.scrollTop = thread.current.scrollHeight;
-  }, [messages, busy, aiError]);
+  }, [messages, busy, aiError, ai]);
   const [accessToken, setAccessToken] = useState("");
   const [needsToken, setNeedsToken] = useState(false);
-  const [agentHeight, setAgentHeight] = useState<number>();
-  useEffect(() => {
-    if (!ai || !dockAI) return;
-    const resize = () => {
-      const top =
-        document.getElementById("yp-agent")?.getBoundingClientRect().top ?? 20;
-      setAgentHeight(
-        Math.max(320, window.innerHeight - Math.max(20, top) - 20),
-      );
-    };
-    resize();
-    window.addEventListener("scroll", resize, { passive: true });
-    window.addEventListener("resize", resize);
-    return () => {
-      window.removeEventListener("scroll", resize);
-      window.removeEventListener("resize", resize);
-    };
-  }, [ai, dockAI]);
   useEffect(() => {
     if (compact && ai) setSettings(false);
   }, [compact, ai]);
@@ -503,7 +518,7 @@ export default function Planner() {
     setSettings(true);
   }
   function showAI() {
-    if (!dockAI) setSettings(false);
+    if (compact) setSettings(false);
     setAI(true);
   }
   async function ask() {
@@ -655,14 +670,6 @@ export default function Planner() {
           young<span>planner</span>
           <small>은퇴의 다음 장</small>
         </a>
-        <button
-          className={ai ? "yp-primary" : ""}
-          onClick={() => (ai ? setAI(false) : showAI())}
-          aria-expanded={ai}
-          aria-controls="yp-agent"
-        >
-          ✦ AI 에이전트
-        </button>
       </header>
       <main className="yp-main">
         <section className="yp-intro">
@@ -762,7 +769,7 @@ export default function Planner() {
           </div>
         )}
         <div
-          className={`yp-workspace ${settings && !compact ? "with-settings" : ""} ${ai && dockAI ? "with-agent" : ""}`}
+          className={`yp-workspace ${settings && !compact ? "with-settings" : ""}`}
         >
           {settings && (
             <>
@@ -1412,32 +1419,22 @@ export default function Planner() {
           </div>
           {ai && (
             <>
-              {!dockAI && (
-                <button
-                  className="yp-backdrop"
-                  aria-label="AI 창 닫기"
-                  onClick={() => setAI(false)}
-                />
-              )}
               <aside
                 id="yp-agent"
-                style={
-                  dockAI && agentHeight ? { height: agentHeight } : undefined
-                }
-                className={`yp-card yp-agent ${!dockAI ? "yp-drawer" : ""}`}
-                role={!dockAI ? "dialog" : undefined}
-                aria-modal={!dockAI ? true : undefined}
+                className="yp-card yp-agent"
+                role="dialog"
+                aria-modal="false"
                 aria-labelledby="yp-agent-title"
               >
                 <div className="yp-panel-heading">
                   <div>
                     <p className="yp-eyebrow">함께 살펴보는 은퇴 계획</p>
-                    <h2 id="yp-agent-title">✦ AI 에이전트</h2>
+                    <h2 id="yp-agent-title" className="yp-chat-title">
+                      <RobotIcon size={23} />
+                      은퇴 챗봇
+                    </h2>
                   </div>
-                  <button
-                    aria-label="AI 에이전트 닫기"
-                    onClick={() => setAI(false)}
-                  >
+                  <button aria-label="챗봇 닫기" onClick={() => setAI(false)}>
                     ×
                   </button>
                 </div>
@@ -1450,7 +1447,9 @@ export default function Planner() {
                 >
                   {messages.length === 0 && (
                     <div className="yp-empty">
-                      <span>✦</span>
+                      <span>
+                        <RobotIcon size={28} />
+                      </span>
                       <h3>조건을 바꿔 비교해 볼까요?</h3>
                       <p>
                         특정 달의 지출을 살펴보고,
@@ -1479,7 +1478,7 @@ export default function Planner() {
                     <article className="yp-exchange" key={i}>
                       <p className="yp-user-message">{m.question}</p>
                       <div className="yp-agent-message">
-                        <strong>✦ 에이전트</strong>
+                        <strong>✦ 챗봇</strong>
                         {m.snapshot !== snapshot &&
                           !m.reply.candidates.some(
                             (c) =>
@@ -1679,6 +1678,18 @@ export default function Planner() {
           실제 수급 자격·지급액·세금은 관련 기관에서 확인해 주세요.
         </footer>
       </main>
+      <button
+        ref={chatLauncher}
+        className="yp-chat-launcher"
+        onClick={() => (ai ? setAI(false) : showAI())}
+        aria-label={ai ? "챗봇 닫기" : "챗봇 열기"}
+        aria-expanded={ai}
+        aria-controls="yp-agent"
+        title={ai ? "챗봇 닫기" : "은퇴 챗봇에게 물어보기"}
+      >
+        <RobotIcon size={32} />
+        <span className="yp-sr">은퇴 챗봇</span>
+      </button>
     </div>
   );
 }
