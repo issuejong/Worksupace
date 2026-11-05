@@ -437,7 +437,8 @@ export default function Planner() {
     sending = useRef(false),
     thread = useRef<HTMLDivElement | null>(null),
     agentInput = useRef<HTMLTextAreaElement | null>(null),
-    chatLauncher = useRef<HTMLButtonElement | null>(null);
+    chatLauncher = useRef<HTMLButtonElement | null>(null),
+    resetDialog = useRef<HTMLDialogElement | null>(null);
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 1100px)");
     setCompact(mq.matches);
@@ -623,12 +624,7 @@ export default function Planner() {
     );
   }
   function resetPlanner() {
-    const hasWork = Object.keys(origins).length || messages.length || question;
-    if (
-      hasWork &&
-      !window.confirm("이 브라우저에 저장된 입력과 대화를 모두 지울까요?")
-    )
-      return;
+    resetDialog.current?.close();
     try {
       window.localStorage.removeItem(sessionKey);
       setStorageError("");
@@ -896,7 +892,8 @@ export default function Planner() {
           <div className="yp-example-actions">
             <button
               className="yp-text-button"
-              onClick={resetPlanner}
+              onClick={() => resetDialog.current?.showModal()}
+              aria-haspopup="dialog"
               disabled={!storageReady}
             >
               초기화
@@ -926,6 +923,26 @@ export default function Planner() {
               : "직접 정보 입력·수정 →"}
           </button>
         </div>
+        <dialog
+          ref={resetDialog}
+          className="yp-card yp-reset-dialog"
+          aria-labelledby="yp-reset-title"
+        >
+          <h2 id="yp-reset-title">저장한 내용을 초기화할까요?</h2>
+          <p>이 브라우저에 저장된 입력과 대화가 모두 지워져요.</p>
+          <div className="yp-actions">
+            <button
+              type="button"
+              autoFocus
+              onClick={() => resetDialog.current?.close()}
+            >
+              취소
+            </button>
+            <button type="button" className="yp-primary" onClick={resetPlanner}>
+              초기화 확인
+            </button>
+          </div>
+        </dialog>
         {exampleInfo && (
           <section
             className="yp-example-info"
