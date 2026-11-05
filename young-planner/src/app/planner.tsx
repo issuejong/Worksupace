@@ -421,6 +421,7 @@ export default function Planner() {
     [fileError, setFileError] = useState(""),
     [question, setQuestion] = useState(""),
     [busy, setBusy] = useState(false),
+    [waitingSeconds, setWaitingSeconds] = useState(0),
     [aiError, setAIError] = useState(""),
     [messages, setMessages] = useState<Message[]>([]),
     [undo, setUndo] = useState<{
@@ -466,6 +467,15 @@ export default function Planner() {
   useEffect(() => {
     if (thread.current) thread.current.scrollTop = thread.current.scrollHeight;
   }, [messages, busy, aiError, ai]);
+  useEffect(() => {
+    setWaitingSeconds(0);
+    if (!busy) return;
+    const timer = window.setInterval(
+      () => setWaitingSeconds((v) => v + 1),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [busy]);
   const [accessToken, setAccessToken] = useState("");
   const [needsToken, setNeedsToken] = useState(false);
   useEffect(() => {
@@ -1800,9 +1810,11 @@ export default function Planner() {
                   ))}
                   {busy && (
                     <p className="yp-thinking" role="status">
-                      {result
-                        ? "✦ 조건을 확인하고 필요한 계산을 진행하고 있어요…"
-                        : "✦ 알려주신 정보를 정리하고 있어요…"}
+                      {waitingSeconds >= 6
+                        ? "✦ AI 연결이 지연되고 있어요. 잠시만 기다려 주세요…"
+                        : result
+                          ? "✦ 조건을 확인하고 필요한 계산을 진행하고 있어요…"
+                          : "✦ 알려주신 정보를 정리하고 있어요…"}
                     </p>
                   )}
                   {aiError && (
