@@ -120,7 +120,20 @@ it("reports provider unavailability after a single retry", async () => {
     );
     expect(response.status).toBe(503);
     expect(response.headers.get("Retry-After")).toBe("5");
-    expect((await response.json()).code).toBe("provider_unavailable");
+    const body = await response.json();
+    expect(body.code).toBe("provider_unavailable");
+    expect(body.requestId).toMatch(/^[a-f0-9-]{36}$/);
+    expect(response.headers.get("X-Request-Id")).toBe(body.requestId);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(log).toHaveBeenCalledWith(
+      "Young Planner AI request failed",
+      expect.objectContaining({
+        requestId: body.requestId,
+        elapsedMs: expect.any(Number),
+        status: 503,
+      }),
+    );
+    expect(JSON.stringify(body)).not.toContain("provider unavailable");
     expect(create).toHaveBeenCalledTimes(2);
   } finally {
     log.mockRestore();

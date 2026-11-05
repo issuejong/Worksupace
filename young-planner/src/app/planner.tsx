@@ -619,7 +619,12 @@ export default function Planner() {
       const body = await response.json();
       if (!response.ok) {
         if (response.status === 401) setNeedsToken(true);
-        throw Error(body.error || "AI 연결을 확인해 주세요.");
+        const reference =
+          typeof body.requestId === "string" &&
+          /^[a-f0-9-]{36}$/i.test(body.requestId)
+            ? `\n오류 추적 ID: ${body.requestId}`
+            : "";
+        throw Error((body.error || "AI 연결을 확인해 주세요.") + reference);
       }
       if (signal.aborted) return;
       setMessages((m) => [

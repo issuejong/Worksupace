@@ -859,6 +859,8 @@
   color: #93412f;
 }
 .yp-agent-error p {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
   font-size: 14px;
 }
 .yp-agent-error button {

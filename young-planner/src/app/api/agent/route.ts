@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import OpenAI from "openai";
 import { z } from "zod";
 import {
@@ -18,6 +19,11 @@ import {
   providerStatus,
   withTransientRetry,
 } from "../../../lib/ai-reliability";
+import {
+  diagnosticFetch,
+  privateFragments,
+  redactDiagnostic,
+} from "../../../lib/ai-diagnostics";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 const inputSchema = z
@@ -54,24 +60,65 @@ const inputSchema = z
   .strict();
 const requests = new Map<string, { time: number; count: number }>();
 export async function POST(req: Request) {
+  const requestId = randomUUID(),
+    started = Date.now();
+  const secrets = [
+    process.env.GEMINI_API_KEY,
+    process.env.OPENAI_API_KEY,
+    process.env.AI_ACCESS_TOKEN,
+  ].filter((v): v is string => Boolean(v));
+  const context = {
+    requestId,
+    provider: process.env.GEMINI_API_KEY ? "gemini" : "openai",
+    model: redactDiagnostic(
+      process.env.GEMINI_API_KEY
+        ? process.env.GEMINI_MODEL
+        : process.env.OPENAI_MODEL,
+      secrets,
+    ),
+    region: process.env.VERCEL_REGION || "local",
+    operation: "unknown",
+  };
+  let errorName: string | undefined;
+  function respond(body: Record<string, unknown>, init: ResponseInit = {}) {
+    const status = init.status || 200;
+    const record = {
+      ...context,
+      status,
+      code: body.code,
+      errorName,
+      elapsedMs: Date.now() - started,
+    };
+    if (status >= 400) console.error("Young Planner AI request failed", record);
+    else console.info("Young Planner AI request completed", record);
+    const headers = new Headers(init.headers);
+    headers.set("X-Request-Id", requestId);
+    headers.set("Cache-Control", "no-store");
+    return Response.json({ ...body, requestId }, { ...init, headers });
+  }
   try {
     const text = await req.text();
     if (text.length > 100000)
-      return Response.json({ error: "요청이 너무 큽니다." }, { status: 413 });
+      return respond(
+        { error: "요청이 너무 큽니다.", code: "request_too_large" },
+        { status: 413 },
+      );
     const parsed = inputSchema.safeParse(JSON.parse(text));
     if (!parsed.success)
-      return Response.json(
-        { error: "질문과 입력 조건을 확인해 주세요." },
+      return respond(
+        { error: "질문과 입력 조건을 확인해 주세요.", code: "invalid_request" },
         { status: 400 },
       );
+    context.operation = parsed.data.operation;
     const gemini = Boolean(process.env.GEMINI_API_KEY),
       apiKey = gemini ? process.env.GEMINI_API_KEY : process.env.OPENAI_API_KEY,
       model = gemini ? process.env.GEMINI_MODEL : process.env.OPENAI_MODEL;
     if (!apiKey || !model)
-      return Response.json(
+      return respond(
         {
           error:
             "AI 에이전트가 아직 연결되지 않았어요. 서버의 API 키와 모델 설정이 필요합니다.",
+          code: "ai_not_configured",
         },
         { status: 503 },
       );
@@ -80,16 +127,19 @@ export async function POST(req: Request) {
       req.headers.get("authorization") !==
         `Bearer ${process.env.AI_ACCESS_TOKEN}`
     )
-      return Response.json(
-        { error: "AI 접근 토큰을 확인해 주세요." },
+      return respond(
+        { error: "AI 접근 토큰을 확인해 주세요.", code: "unauthorized" },
         { status: 401 },
       );
     const key = req.headers.get("x-forwarded-for")?.split(",")[0] || "local",
       now = Date.now(),
       prev = requests.get(key);
     if (prev && now - prev.time < 60000 && prev.count >= 8)
-      return Response.json(
-        { error: "질문이 많아 잠시 쉬고 있어요. 1분 뒤 다시 시도해 주세요." },
+      return respond(
+        {
+          error: "질문이 많아 잠시 쉬고 있어요. 1분 뒤 다시 시도해 주세요.",
+          code: "request_rate_limit",
+        },
         { status: 429 },
       );
     if (requests.size > 2000) requests.clear();
@@ -106,6 +156,14 @@ export async function POST(req: Request) {
         : {}),
       timeout: 45000,
       maxRetries: 0,
+      fetch: diagnosticFetch(
+        (diagnostic) =>
+          console.warn("Young Planner AI provider response", {
+            ...context,
+            ...diagnostic,
+          }),
+        [...secrets, ...privateFragments(parsed.data)],
+      ),
     });
     const signal = AbortSignal.any([req.signal, AbortSignal.timeout(50000)]);
     // Candidate numbers from the browser are not trusted: only full inputs are reused and recalculated by tools.
@@ -139,7 +197,7 @@ export async function POST(req: Request) {
       const proposal = parseIntakeResponse(
         response.choices[0]?.message.content || "{}",
       );
-      return Response.json({
+      return respond({
         answer: proposal.answer,
         intake: { patch: proposal.patch },
         candidates: [],
@@ -152,11 +210,14 @@ export async function POST(req: Request) {
       input.solutions,
     ).household;
     if (!ready)
-      return Response.json(
-        { error: "계산에 필요한 정보를 먼저 확인해 주세요." },
+      return respond(
+        {
+          error: "계산에 필요한 정보를 먼저 확인해 주세요.",
+          code: "incomplete_input",
+        },
         { status: 400 },
       );
-    return Response.json(
+    return respond(
       await runHouseholdAgent(
         client,
         model,
@@ -172,30 +233,23 @@ export async function POST(req: Request) {
     );
   } catch (e) {
     if (e instanceof SyntaxError)
-      return Response.json(
-        { error: "입력 형식을 확인해 주세요." },
+      return respond(
+        { error: "입력 형식을 확인해 주세요.", code: "invalid_request" },
         { status: 400 },
       );
-    let message = e instanceof Error ? e.message : "Unknown AI error";
-    for (const secret of [
-      process.env.GEMINI_API_KEY,
-      process.env.OPENAI_API_KEY,
-      process.env.AI_ACCESS_TOKEN,
-    ]) {
-      if (secret) message = message.split(secret).join("[REDACTED]");
-    }
-    console.error("Young Planner AI request failed", {
-      name: e instanceof Error ? e.name : "UnknownError",
-      status: providerStatus(e),
-      message: message.slice(0, 1000),
-    });
+    // Free-form SDK errors can include request payloads; provider errors are
+    // captured separately from the raw HTTP response with an explicit allowlist.
+    errorName = e instanceof Error ? e.constructor.name : "UnknownError";
     if (providerStatus(e) === 429)
-      return Response.json(
-        { error: "AI 사용량 한도에 도달했어요. 잠시 후 다시 시도해 주세요." },
+      return respond(
+        {
+          error: "AI 사용량 한도에 도달했어요. 잠시 후 다시 시도해 주세요.",
+          code: "provider_rate_limit",
+        },
         { status: 429 },
       );
     if ([500, 502, 503, 504].includes(providerStatus(e) || 0))
-      return Response.json(
+      return respond(
         {
           error:
             "AI 제공자가 일시적으로 요청을 처리하지 못했어요. 자동으로 한 번 재시도했지만 연결되지 않았어요. 잠시 후 다시 보내주세요.",
@@ -204,7 +258,7 @@ export async function POST(req: Request) {
         { status: 503, headers: { "Retry-After": "5" } },
       );
     if (e instanceof IntakeResponseError)
-      return Response.json(
+      return respond(
         {
           error:
             "AI가 정보를 읽을 수 있는 형식으로 정리하지 못했어요. 입력한 내용은 유지돼요. 다시 보내주세요.",
@@ -221,7 +275,7 @@ export async function POST(req: Request) {
         "APIConnectionTimeoutError",
       ].includes(e.name)
     )
-      return Response.json(
+      return respond(
         {
           error:
             "AI 응답 시간이 초과됐어요. 입력한 내용은 유지돼요. 잠시 후 다시 보내주세요.",
@@ -229,7 +283,7 @@ export async function POST(req: Request) {
         },
         { status: 504 },
       );
-    return Response.json(
+    return respond(
       {
         error:
           "AI 분석을 완료하지 못했어요. 입력한 내용은 유지돼요. 다시 시도해 주세요.",
