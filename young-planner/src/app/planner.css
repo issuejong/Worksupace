@@ -108,27 +108,47 @@
   gap: 12px;
   margin-bottom: 20px;
 }
-.yp-segment {
+.yp-example-actions {
   display: flex;
-  padding: 4px;
-  border-radius: 13px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.yp-app .yp-example-button {
+  background: #e9f1e5;
+  border-color: #bed0bc;
+  color: var(--green);
+}
+.yp-example-info {
+  background: #fffefa;
   border: 1px solid var(--line);
-  background: #ecefe7;
-  gap: 4px;
+  border-radius: 15px;
+  padding: 22px 24px;
+  margin-bottom: 20px;
 }
-.yp-segment button {
-  border-color: transparent;
-  background: transparent;
-  color: #52675a;
+.yp-example-info > p {
+  font-size: 14px;
+  max-width: 960px;
 }
-.yp-segment button[aria-pressed="true"] {
-  background: var(--green);
-  color: white;
-  border-color: var(--green);
-  box-shadow: 0 2px 5px #123d2520;
+.yp-example-info dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px 0;
 }
-.yp-segment button[aria-pressed="true"]:hover {
-  background: #0f4d39 !important;
+.yp-example-info dt {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.yp-example-info dd {
+  margin: 0;
+  font-weight: 600;
+  font-size: 16px;
+}
+.yp-example-info .yp-section-heading > button {
+  font-size: 22px;
+  padding: 4px 12px;
 }
 .yp-app .yp-text-button {
   background: transparent;
@@ -1016,16 +1036,22 @@
     gap: 6px;
     margin-bottom: 16px;
   }
-  .yp-segment {
-    width: 100%;
+  .yp-example-actions {
+    gap: 4px;
   }
-  .yp-segment button {
-    font-size: 12px;
-    padding: 10px 8px;
-    flex: 1;
+  .yp-example-actions button {
+    font-size: 13px;
+    padding: 10px 12px;
   }
-  .yp-segment button:first-child {
-    flex: 1.5;
+  .yp-example-info {
+    padding: 18px;
+  }
+  .yp-example-info dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px 10px;
+  }
+  .yp-example-info dd {
+    font-size: 14px;
   }
   .yp-start > .yp-text-button {
     align-self: flex-end;

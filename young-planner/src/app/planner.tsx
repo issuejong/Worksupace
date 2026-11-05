@@ -357,8 +357,8 @@ function Charts({
 type Message = { question: string; reply: AgentReply; snapshot: string };
 export default function Planner() {
   const [h, setH] = useState<Household>({ ...example }),
-    [s, setS] = useState<Solutions>({ ...adopted }),
-    [basis, setBasis] = useState<"example" | "custom">("example");
+    [s, setS] = useState<Solutions>({ ...adopted });
+  const [exampleInfo, setExampleInfo] = useState(false);
   const [settings, setSettings] = useState(true),
     [ai, setAI] = useState(false),
     [compact, setCompact] = useState(false),
@@ -439,7 +439,6 @@ export default function Planner() {
     planValidation = solutionSchema.safeParse(s);
   const update = (key: keyof Household, value: string | number) => {
     setH((v) => ({ ...v, [key]: value }));
-    setBasis("custom");
     setNotice("");
     setApplied("");
     setUndo(null);
@@ -494,7 +493,6 @@ export default function Planner() {
     abort.current?.abort();
     setH({ ...example });
     setS({ ...adopted });
-    setBasis("example");
     setNotice("권 부장 부부의 정보와 보고서 기본 계획을 불러왔어요.");
     setFileError("");
     setApplied("");
@@ -578,7 +576,6 @@ export default function Planner() {
     setH(nextH.data);
     setS(nextS.data);
     setApplied(c.name);
-    if (JSON.stringify(h) !== JSON.stringify(nextH.data)) setBasis("custom");
     setTab("result");
     setNotice(`${c.name}을 적용했어요.`);
   }
@@ -679,21 +676,17 @@ export default function Planner() {
           </div>
         </section>
         <div className="yp-start">
-          <div className="yp-segment" aria-label="계산할 정보 선택">
-            <button aria-pressed={basis === "example"} onClick={resetExample}>
-              {basis === "example" ? "✓ " : ""}권 부장 부부 예시로 체험
+          <div className="yp-example-actions">
+            <button className="yp-example-button" onClick={resetExample}>
+              권 부장 부부 예시 넣기
             </button>
             <button
-              aria-pressed={basis === "custom"}
-              onClick={() => {
-                setBasis("custom");
-                showSettings();
-                setNotice(
-                  "예시 값을 내 정보로 바꿔 주세요. 입력한 내용은 자동 저장하지 않아요.",
-                );
-              }}
+              className="yp-text-button"
+              aria-expanded={exampleInfo}
+              aria-controls="yp-example-info"
+              onClick={() => setExampleInfo((v) => !v)}
             >
-              {basis === "custom" ? "✓ " : ""}내 정보로 계산
+              예시 소개 {exampleInfo ? "⌃" : "⌄"}
             </button>
           </div>
           <button
@@ -705,6 +698,61 @@ export default function Planner() {
             {settings ? "입력 접기 ↑" : "내 정보 확인·수정 →"}
           </button>
         </div>
+        {exampleInfo && (
+          <section
+            className="yp-example-info"
+            id="yp-example-info"
+            aria-labelledby="yp-example-title"
+          >
+            <div className="yp-section-heading">
+              <div>
+                <p className="yp-eyebrow">
+                  가상의 보고서 사례 · {dateText(example.start)} 기준
+                </p>
+                <h2 id="yp-example-title">
+                  정년과 연금 사이, 생활비를 어떻게 마련할까요?
+                </h2>
+              </div>
+              <button
+                aria-label="예시 소개 닫기"
+                onClick={() => setExampleInfo(false)}
+              >
+                ×
+              </button>
+            </div>
+            <p>
+              권 부장은 {example.birth.slice(0, 4)}년생으로{" "}
+              {dateText(example.retire)} 은퇴를 앞두고 있어요. 배우자는{" "}
+              {example.spouseBirth.slice(0, 4)}년생이며{" "}
+              {dateText(example.spouseEnd)}까지 일할 예정이에요. 은퇴 후
+              국민연금이 나오기 전까지 생활자금이 충분한지, 어떤 준비가 필요한지
+              비교하는 사례예요.
+            </p>
+            <dl>
+              {[
+                [
+                  "부부 월소득",
+                  fmt(example.income + example.spouseIncome) + "만 원",
+                ],
+                ["월 생활비", fmt(example.living) + "만 원"],
+                ["금융자산", fmt(example.assets) + "만 원"],
+                [
+                  "주택가격 / 주담대",
+                  fmt(example.house) + " / " + fmt(example.loan) + "만 원",
+                ],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="yp-note">
+              ‘예시 넣기’를 누르면 위 가구 정보와 보고서 기본 은퇴 계획을 함께
+              불러와요. 이후 내 상황에 맞게 자유롭게 바꿀 수 있어요.
+            </p>
+          </section>
+        )}
         {notice && (
           <div className="yp-notice" role="status">
             {notice}
@@ -815,7 +863,6 @@ export default function Planner() {
                                 nextS = solutionSchema.parse(value.solutions);
                               setH(nextH);
                               setS(nextS);
-                              setBasis("custom");
                               setFileError("");
                               setNotice("저장한 조건을 불러왔어요.");
                               setApplied("");
