@@ -287,43 +287,5 @@ export function calculate(
     warnings,
   };
 }
-export const fmt = (v: number) => v.toLocaleString("ko-KR", { maximumFractionDigits: 1 });
-export function facts(r: Simulation) {
-  return {
-    firstNegative: r.firstNegative ?? "없음",
-    minAssets: fmt(r.minAssets) + "만 원",
-    minMonth: r.minMonth,
-    lifeNet: fmt(r.lifeNet) + "만 원",
-    endAssets: fmt(r.endAssets) + "만 원",
-    reserve: fmt(r.reserve) + "만 원",
-    reserveStatus: r.passes ? "충족" : "미달",
-    gapMonths: r.gapMonths + "개월",
-  };
-}
-export function explanation(r: Simulation, question = "") {
-  const requested = question.match(/(20\d{2})년?\s*([0-1]?\d)월/);
-  const key = requested
-    ? `${requested[1]}-${requested[2].padStart(2, "0")}`
-    : r.firstNegative;
-  const row = r.rows.find((x) => x.date === key);
-  return `${r.firstNegative ? `${r.firstNegative}에 월말 금융자산이 처음 음수가 됩니다.` : "분석 종료까지 금융자산이 음수가 되는 달은 없습니다."} 최저 금융자산은 ${r.minMonth}의 ${fmt(r.minAssets)}만 원입니다. 비상자금 ${fmt(r.reserve)}만 원 기준은 ${r.passes ? "충족" : "미달"}입니다.${
-    row
-      ? ` ${row.date} 수입은 ${fmt(row.income)}만 원, 지출은 ${fmt(row.expenses)}만 원입니다. 지출 구성은 ${Object.entries(
-          row.components,
-        )
-          .filter(
-            ([k, v]) =>
-              [
-                "생활비",
-                "자녀지원",
-                "대출상환",
-                "건강보험",
-                "추납",
-                "일시지출",
-              ].includes(k) && v > 0,
-          )
-          .map(([k, v]) => `${k} ${fmt(v)}만 원`)
-          .join(", ")}입니다.`
-      : ""
-  } 생애 순수지는 ${fmt(r.lifeNet)}만 원(기준년 구매력, 운용수익 제외)입니다. 참고용 시뮬레이션이며 상품 권유가 아닙니다.`;
-}
+export const fmt = (v: number) =>
+  v.toLocaleString("ko-KR", { maximumFractionDigits: 1 });
