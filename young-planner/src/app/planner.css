@@ -1330,12 +1330,129 @@
   }
 }
 
-.yp-onboarding {
-  margin-bottom: 20px;
+/* The same conversation is the starting workspace, then floats beside results. */
+.yp-chat-start .yp-main {
+  max-width: 920px;
+  display: flex;
+  flex-direction: column;
 }
-.yp-onboarding > p {
-  margin-top: 10px;
+.yp-chat-start .yp-intro,
+.yp-chat-start .yp-analysis {
+  display: none;
 }
-.yp-onboarding .yp-note {
-  margin-top: 16px;
+.yp-chat-start .yp-workspace {
+  order: 1;
+  display: block;
+}
+.yp-chat-start .yp-start {
+  order: 2;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 24px;
+}
+.yp-chat-start .yp-example-info {
+  order: 3;
+}
+.yp-chat-start .yp-footer {
+  order: 4;
+}
+.yp-app .yp-agent-inline {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  width: 100%;
+  height: auto;
+  min-height: min(610px, calc(100dvh - 220px));
+  max-height: none;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+.yp-agent-inline > .yp-panel-heading {
+  display: none;
+}
+.yp-agent-inline .yp-thread {
+  padding: 24px 0;
+  max-height: 52dvh;
+}
+.yp-agent-inline .yp-empty {
+  padding: 24px 0 16px;
+}
+.yp-agent-inline .yp-empty > h1 {
+  font-size: clamp(25px, 3.5vw, 36px);
+  line-height: 1.4;
+  letter-spacing: -1px;
+  margin-bottom: 14px;
+}
+.yp-agent-inline .yp-empty > p {
+  font-size: 16px;
+  max-width: 520px;
+  margin: 0 auto;
+}
+.yp-agent-inline .yp-suggestions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.yp-agent-inline .yp-suggestions button {
+  width: auto;
+  font-size: 13px;
+  border-radius: 24px;
+}
+.yp-agent-inline .yp-composer {
+  border: 1px solid #d4ddd3;
+  border-radius: 24px;
+  background: #fffefa;
+  padding: 20px;
+  box-shadow: 0 8px 30px #17332e09;
+}
+.yp-agent-inline .yp-composer textarea {
+  background: transparent;
+  border: 0;
+  padding: 12px 0;
+  min-height: 96px;
+  font-size: 16px;
+}
+.yp-agent-inline .yp-composer > label {
+  color: var(--muted);
+  font-weight: 500;
+}
+.yp-agent-inline .yp-privacy {
+  margin-top: 14px;
+}
+@media (max-width: 600px) {
+  .yp-chat-start .yp-main {
+    padding-top: 8px;
+  }
+  .yp-app .yp-agent-inline {
+    min-height: 0;
+  }
+  .yp-agent-inline .yp-thread {
+    padding: 16px 0;
+    max-height: 50dvh;
+  }
+  .yp-agent-inline .yp-empty {
+    padding: 12px 0;
+  }
+  .yp-agent-inline .yp-empty > p {
+    font-size: 14px;
+  }
+  .yp-agent-inline .yp-suggestions {
+    display: grid;
+  }
+  .yp-agent-inline .yp-composer {
+    padding: 16px;
+    border-radius: 20px;
+  }
+  .yp-chat-start .yp-start {
+    gap: 12px;
+    margin-top: 20px;
+  }
+  .yp-chat-start .yp-example-actions {
+    justify-content: center;
+    flex-wrap: wrap;
+  }
 }

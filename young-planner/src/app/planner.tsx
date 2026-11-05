@@ -413,7 +413,7 @@ export default function Planner() {
     setHousehold(action);
   }
   const [exampleInfo, setExampleInfo] = useState(false);
-  const [settings, setSettings] = useState(true),
+  const [settings, setSettings] = useState(false),
     [ai, setAI] = useState(false),
     [compact, setCompact] = useState(false),
     [tab, setTab] = useState<"result" | "plan" | "basis">("result");
@@ -474,7 +474,6 @@ export default function Planner() {
   const snapshot = JSON.stringify({ h, s }),
     snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
-  const prepared = prepareScenario(h, s);
   const result = useMemo(() => {
     try {
       const ready = prepareScenario(h, s).household;
@@ -487,6 +486,8 @@ export default function Planner() {
       return null;
     }
   }, [h, s]);
+  const prepared = prepareScenario(h, s);
+  const chatStart = !result && !settings;
   const validation = householdSchema.safeParse(h),
     planValidation = solutionSchema.safeParse(s);
   const update = (key: keyof Household, value: string | number) => {
@@ -550,6 +551,8 @@ export default function Planner() {
     );
   }
   function resetExample() {
+    setAI(false);
+    setSettings(false);
     abort.current?.abort();
     setUndo({ h, s, origins });
     setH({ ...example });
@@ -575,13 +578,14 @@ export default function Planner() {
     setSettings(true);
   }
   function showAI() {
-    if (compact) setSettings(false);
+    if (compact || !result) setSettings(false);
     setAI(true);
   }
   async function ask() {
     const q = question.trim();
     if (!q || sending.current) return;
     sending.current = true;
+    setAI(true);
     setBusy(true);
     setAIError("");
     abort.current = new AbortController();
@@ -735,9 +739,9 @@ export default function Planner() {
       ? "비상자금까지 유지"
       : "비상자금 보완 필요";
   return (
-    <div className="yp-app">
-      <a className="yp-skip" href="#yp-analysis">
-        분석 결과로 건너뛰기
+    <div className={`yp-app ${chatStart ? "yp-chat-start" : ""}`}>
+      <a className="yp-skip" href={chatStart ? "#yp-question" : "#yp-analysis"}>
+        {chatStart ? "대화 입력으로 건너뛰기" : "분석 결과로 건너뛰기"}
       </a>
       <header className="yp-header">
         <a className="yp-brand" href="/">
@@ -756,26 +760,6 @@ export default function Planner() {
             <p>정보를 확인하고, 준비 방법을 골라 결과를 비교해 보세요.</p>
           </div>
         </section>
-        {!result && (
-          <section className="yp-card yp-onboarding">
-            <h2>어떤 방법으로 정보를 입력할까요?</h2>
-            <p>
-              대화와 직접 입력을 자유롭게 오갈 수 있어요. 예시 정보는 아래
-              버튼을 눌렀을 때만 채워져요.
-            </p>
-            <div className="yp-actions">
-              <button className="yp-primary" onClick={showAI}>
-                대화로 정보 입력
-              </button>
-              <button onClick={showSettings}>직접 정보 입력</button>
-            </div>
-            <p className="yp-note">
-              확인할 정보:{" "}
-              {prepared.missing.map((k) => inputLabels[k] || k).join(" · ") ||
-                "입력 범위와 계산 기간"}
-            </p>
-          </section>
-        )}
         <div className="yp-start">
           <div className="yp-example-actions">
             <button
@@ -788,6 +772,8 @@ export default function Planner() {
                 setOrigins({});
                 setMessages([]);
                 setQuestion("");
+                setSettings(false);
+                setAI(false);
                 setNotice("입력을 새로 시작해요.");
               }}
             >
@@ -811,7 +797,11 @@ export default function Planner() {
             aria-expanded={settings}
             aria-controls="yp-settings"
           >
-            {settings ? "입력 접기 ↑" : "내 정보 확인·수정 →"}
+            {settings
+              ? result
+                ? "입력 접기 ↑"
+                : "대화로 돌아가기 →"
+              : "직접 정보 입력·수정 →"}
           </button>
         </div>
         {exampleInfo && (
@@ -1562,13 +1552,13 @@ export default function Planner() {
               </>
             )}
           </div>
-          {ai && (
+          {(ai || chatStart) && (
             <>
               <aside
                 id="yp-agent"
-                className="yp-card yp-agent"
-                role="dialog"
-                aria-modal="false"
+                className={`yp-card yp-agent ${chatStart ? "yp-agent-inline" : ""}`}
+                role={chatStart ? "region" : "dialog"}
+                aria-modal={chatStart ? undefined : false}
                 aria-labelledby="yp-agent-title"
               >
                 <div className="yp-panel-heading">
@@ -1579,9 +1569,11 @@ export default function Planner() {
                       은퇴 챗봇
                     </h2>
                   </div>
-                  <button aria-label="챗봇 닫기" onClick={() => setAI(false)}>
-                    ×
-                  </button>
+                  {!chatStart && (
+                    <button aria-label="챗봇 닫기" onClick={() => setAI(false)}>
+                      ×
+                    </button>
+                  )}
                 </div>
                 <div
                   className="yp-thread"
@@ -1595,15 +1587,16 @@ export default function Planner() {
                       <span>
                         <RobotIcon size={28} />
                       </span>
-                      <h3>
+                      {chatStart && <h1>은퇴 준비, 어디서부터 시작할까요?</h1>}
+                      <h3 hidden={chatStart}>
                         {result
                           ? "조건을 바꿔 비교해 볼까요?"
                           : "은퇴 준비 정보를 함께 정리해요"}
                       </h3>
                       <p>
-                        특정 달의 지출을 살펴보고,
-                        <br />
-                        다른 계획을 계산해 비교할 수 있어요.
+                        {result
+                          ? "궁금한 점을 물어보거나, 다른 계획을 비교해 보세요."
+                          : "아는 정보부터 편하게 알려주세요. 필요한 내용은 하나씩 함께 정리할게요."}
                       </p>
                       <div className="yp-suggestions">
                         {[
@@ -1854,13 +1847,21 @@ export default function Planner() {
                     void ask();
                   }}
                 >
-                  <label htmlFor="yp-question">궁금한 점을 물어보세요</label>
+                  <label htmlFor="yp-question">
+                    {result
+                      ? "궁금한 점을 물어보세요"
+                      : "현재 상황을 편하게 알려주세요"}
+                  </label>
                   <textarea
                     id="yp-question"
                     ref={agentInput}
                     rows={3}
                     maxLength={1500}
-                    placeholder="예: 재취업을 하지 않으면 얼마나 달라져?"
+                    placeholder={
+                      result
+                        ? "예: 재취업을 하지 않으면 얼마나 달라져?"
+                        : "예: 저는 58살이고 2년 뒤 은퇴해요. 예금은 6천만 원, 생활비는 월 250만 원 정도예요."
+                    }
                     value={question}
                     onChange={(e) => setQuestion(e.target.value)}
                     onKeyDown={(e) => {
@@ -1908,18 +1909,20 @@ export default function Planner() {
           실제 수급 자격·지급액·세금은 관련 기관에서 확인해 주세요.
         </footer>
       </main>
-      <button
-        ref={chatLauncher}
-        className="yp-chat-launcher"
-        onClick={() => (ai ? setAI(false) : showAI())}
-        aria-label={ai ? "챗봇 닫기" : "챗봇 열기"}
-        aria-expanded={ai}
-        aria-controls="yp-agent"
-        title={ai ? "챗봇 닫기" : "은퇴 챗봇에게 물어보기"}
-      >
-        <RobotIcon size={32} />
-        <span className="yp-sr">은퇴 챗봇</span>
-      </button>
+      {!chatStart && (
+        <button
+          ref={chatLauncher}
+          className="yp-chat-launcher"
+          onClick={() => (ai ? setAI(false) : showAI())}
+          aria-label={ai ? "챗봇 닫기" : "챗봇 열기"}
+          aria-expanded={ai}
+          aria-controls="yp-agent"
+          title={ai ? "챗봇 닫기" : "은퇴 챗봇에게 물어보기"}
+        >
+          <RobotIcon size={32} />
+          <span className="yp-sr">은퇴 챗봇</span>
+        </button>
+      )}
     </div>
   );
 }
