@@ -102,6 +102,7 @@ export function executeHouseholdTool(
   unavailable: (keyof Household)[] = [],
 ) {
   const unavailablePlan = (plan: Solutions, patch: Partial<Household> = {}) =>
+    (plan.catchup && h.hasSpouse === false) ||
     Object.entries({
       job: ["jobIncome"],
       benefits: ["benefit", "benefitMonths"],

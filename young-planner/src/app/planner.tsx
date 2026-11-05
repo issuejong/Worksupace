@@ -124,6 +124,8 @@ const showValue = (v: unknown, key?: string) =>
       ? `${fmt(v)}${key === "pensionOffset" ? "개월" : key === "homeYear" ? "년" : ""}`
       : String(v);
 function householdValue(value: unknown, key: string) {
+  if (key === "hasSpouse" && typeof value === "boolean")
+    return value ? "있어요" : "없어요";
   const rate = [
     "inflation",
     "wageGrowth",
@@ -497,10 +499,21 @@ export default function Planner() {
     }
   }, [h, s]);
   const prepared = prepareScenario(h, s);
+  const pendingIntake = messages.findLast(
+    (m) =>
+      m.reply.intake &&
+      m.snapshot === snapshot &&
+      m.revision === revision.current,
+  );
   const chatStart = !result && !settings;
   const validation = householdSchema.safeParse(h),
     planValidation = solutionSchema.safeParse(s);
-  const update = (key: keyof Household, value: string | number) => {
+  const update = (
+    key: keyof Household,
+    value: string | number | boolean | undefined,
+  ) => {
+    if (key === "hasSpouse" && value === false)
+      setS((v) => ({ ...v, catchup: false }));
     setH((v) => ({ ...v, [key]: value }));
     setOrigins((v) => ({ ...v, [key]: "manual" }));
     setNotice("");
@@ -513,6 +526,8 @@ export default function Planner() {
     setUndo(null);
   };
   function field([key, label, unit]: FieldSpec) {
+    if (h.hasSpouse === false && key.startsWith("spouse")) return null;
+    if (key === "living" && h.hasSpouse === false) label = "본인 월 생활비";
     const issues = validation.success ? [] : validation.error.issues;
     const issue = issues.find((i) => i.path[0] === key);
     const invalid =
@@ -602,6 +617,9 @@ export default function Planner() {
     const signal = abort.current.signal,
       snap = snapshot;
     const requestRevision = revision.current;
+    const pendingPatch = !result
+      ? pendingIntake?.reply.intake?.patch
+      : undefined;
     const history = messages.slice(-5).flatMap((m) => [
       { role: "user" as const, content: m.question },
       { role: "assistant" as const, content: m.reply.answer.slice(0, 6000) },
@@ -616,7 +634,10 @@ export default function Planner() {
         body: JSON.stringify({
           question: q,
           operation: result ? "analyze" : "collect",
-          household: cleanDraft(h),
+          household: cleanDraft({ ...h, ...pendingPatch }),
+          pendingIntake: Boolean(
+            pendingPatch && Object.keys(pendingPatch).length,
+          ),
           solutions: s,
           history,
           previousCandidates: messages
@@ -637,6 +658,16 @@ export default function Planner() {
         throw Error((body.error || "AI 연결을 확인해 주세요.") + reference);
       }
       if (signal.aborted) return;
+      if (body.intake) {
+        const patch = { ...pendingPatch, ...body.intake.patch };
+        if ((patch.hasSpouse ?? h.hasSpouse) === false) {
+          delete patch.spouseBirth;
+          delete patch.spouseIncome;
+          delete patch.spousePension;
+          delete patch.spouseEnd;
+        }
+        body.intake.patch = patch;
+      }
       setMessages((m) => [
         ...m,
         { question: q, reply: body, snapshot: snap, revision: requestRevision },
@@ -931,6 +962,34 @@ export default function Planner() {
                         <span>⌄</span>
                       </summary>
                       <p className="yp-note">{g.description}</p>
+                      {g.title === "나와 배우자" && (
+                        <label className="yp-field">
+                          <span>함께 계산할 배우자</span>
+                          <select
+                            value={
+                              h.hasSpouse === undefined
+                                ? h.spouseBirth
+                                  ? "yes"
+                                  : ""
+                                : h.hasSpouse
+                                  ? "yes"
+                                  : "no"
+                            }
+                            onChange={(e) =>
+                              update(
+                                "hasSpouse",
+                                e.target.value === ""
+                                  ? undefined
+                                  : e.target.value === "yes",
+                              )
+                            }
+                          >
+                            <option value="">선택해 주세요</option>
+                            <option value="yes">있어요</option>
+                            <option value="no">없어요</option>
+                          </select>
+                        </label>
+                      )}
                       {g.fields.map(field)}
                     </details>
                   ))}
@@ -1334,98 +1393,106 @@ export default function Planner() {
                           string,
                           FieldSpec[],
                         ][]
-                      ).map(([key, label, description, fields]) => (
-                        <div
-                          className={`yp-plan-option ${s[key] ? "chosen" : ""}`}
-                          key={key}
-                        >
-                          <label className="yp-check">
-                            <input
-                              type="checkbox"
-                              checked={s[key]}
-                              onChange={(e) =>
-                                setPlan({ [key]: e.target.checked })
-                              }
-                            />
-                            <span>
-                              <strong>{label}</strong>
-                              <small>{description}</small>
-                            </span>
-                            <span className="yp-check-state">
-                              {s[key] ? "선택됨" : "선택 안 함"}
-                            </span>
-                          </label>
-                          {s[key] && (
-                            <details className="yp-plan-detail">
-                              <summary>
-                                {key === "repay"
-                                  ? "얼마를 갚나요?"
-                                  : "금액·기간 조절"}
-                              </summary>
-                              {fields.map(field)}
-                              {key === "repay" && (
-                                <p>
-                                  은퇴 다음 달에 대출 잔액을 전액 상환해요. 현재
-                                  대출 잔액은 {fmt(h.loan)}만 원이에요.
-                                </p>
-                              )}
-                              {key === "home" && (
-                                <>
-                                  <label className="yp-field">
-                                    <span>
-                                      주택연금 시작 연도{" "}
-                                      <strong>{s.homeYear}년</strong>
-                                    </span>
-                                    <input
-                                      type="range"
-                                      aria-label="주택연금 시작 연도"
-                                      min={Math.max(2026, +h.start.slice(0, 4))}
-                                      max={Math.min(2120, h.endYear)}
-                                      value={s.homeYear}
-                                      onChange={(e) =>
-                                        setPlan({ homeYear: +e.target.value })
-                                      }
-                                    />
-                                  </label>
-                                  <p className="yp-note">
-                                    {s.homeYear}년 2월부터 월{" "}
-                                    {fmt(current.homeMonthly)}만 원 추정 · 실제
-                                    지급액은 한국주택금융공사에서 확인해 주세요.
+                      )
+                        .filter(
+                          ([key]) => key !== "catchup" || h.hasSpouse !== false,
+                        )
+                        .map(([key, label, description, fields]) => (
+                          <div
+                            className={`yp-plan-option ${s[key] ? "chosen" : ""}`}
+                            key={key}
+                          >
+                            <label className="yp-check">
+                              <input
+                                type="checkbox"
+                                checked={s[key]}
+                                onChange={(e) =>
+                                  setPlan({ [key]: e.target.checked })
+                                }
+                              />
+                              <span>
+                                <strong>{label}</strong>
+                                <small>{description}</small>
+                              </span>
+                              <span className="yp-check-state">
+                                {s[key] ? "선택됨" : "선택 안 함"}
+                              </span>
+                            </label>
+                            {s[key] && (
+                              <details className="yp-plan-detail">
+                                <summary>
+                                  {key === "repay"
+                                    ? "얼마를 갚나요?"
+                                    : "금액·기간 조절"}
+                                </summary>
+                                {fields.map(field)}
+                                {key === "repay" && (
+                                  <p>
+                                    은퇴 다음 달에 대출 잔액을 전액 상환해요.
+                                    현재 대출 잔액은 {fmt(h.loan)}만 원이에요.
                                   </p>
-                                  <label className="yp-checkbox">
-                                    <input
-                                      type="checkbox"
-                                      checked={s.homeOverride > 0}
-                                      onChange={(e) =>
-                                        setPlan({
-                                          homeOverride: e.target.checked
-                                            ? Math.max(
-                                                0.1,
-                                                Math.round(
-                                                  current.homeMonthly * 10,
-                                                ) / 10,
-                                              )
-                                            : 0,
-                                        })
-                                      }
-                                    />
-                                    확인한 주택연금 월액 직접 입력
-                                  </label>
-                                  {s.homeOverride > 0 && (
-                                    <NumberField
-                                      label="확인한 주택연금 월액"
-                                      value={s.homeOverride}
-                                      onChange={(v) =>
-                                        setPlan({ homeOverride: v })
-                                      }
-                                    />
-                                  )}
-                                </>
-                              )}
-                            </details>
-                          )}
-                        </div>
-                      ))}
+                                )}
+                                {key === "home" && (
+                                  <>
+                                    <label className="yp-field">
+                                      <span>
+                                        주택연금 시작 연도{" "}
+                                        <strong>{s.homeYear}년</strong>
+                                      </span>
+                                      <input
+                                        type="range"
+                                        aria-label="주택연금 시작 연도"
+                                        min={Math.max(
+                                          2026,
+                                          +h.start.slice(0, 4),
+                                        )}
+                                        max={Math.min(2120, h.endYear)}
+                                        value={s.homeYear}
+                                        onChange={(e) =>
+                                          setPlan({ homeYear: +e.target.value })
+                                        }
+                                      />
+                                    </label>
+                                    <p className="yp-note">
+                                      {s.homeYear}년 2월부터 월{" "}
+                                      {fmt(current.homeMonthly)}만 원 추정 ·
+                                      실제 지급액은 한국주택금융공사에서 확인해
+                                      주세요.
+                                    </p>
+                                    <label className="yp-checkbox">
+                                      <input
+                                        type="checkbox"
+                                        checked={s.homeOverride > 0}
+                                        onChange={(e) =>
+                                          setPlan({
+                                            homeOverride: e.target.checked
+                                              ? Math.max(
+                                                  0.1,
+                                                  Math.round(
+                                                    current.homeMonthly * 10,
+                                                  ) / 10,
+                                                )
+                                              : 0,
+                                          })
+                                        }
+                                      />
+                                      확인한 주택연금 월액 직접 입력
+                                    </label>
+                                    {s.homeOverride > 0 && (
+                                      <NumberField
+                                        label="확인한 주택연금 월액"
+                                        value={s.homeOverride}
+                                        onChange={(v) =>
+                                          setPlan({ homeOverride: v })
+                                        }
+                                      />
+                                    )}
+                                  </>
+                                )}
+                              </details>
+                            )}
+                          </div>
+                        ))}
                     </div>
                     <label className="yp-field yp-pension">
                       <span>본인 국민연금은 언제 받을까요?</span>
@@ -1643,6 +1710,16 @@ export default function Planner() {
                       <p className="yp-user-message">{m.question}</p>
                       <div className="yp-agent-message">
                         {m.reply.intake &&
+                          (m === pendingIntake ||
+                            (m.snapshot !== snapshot &&
+                              !messages
+                                .slice(i + 1)
+                                .some(
+                                  (next) =>
+                                    next.reply.intake &&
+                                    next.snapshot === m.snapshot &&
+                                    next.revision === m.revision,
+                                ))) &&
                           Object.keys(m.reply.intake.patch).length > 0 && (
                             <div className="yp-candidate">
                               <h3>입력 정보 확인</h3>
@@ -1661,6 +1738,8 @@ export default function Planner() {
                               <button
                                 className="yp-primary"
                                 disabled={
+                                  busy ||
+                                  m !== pendingIntake ||
                                   m.revision !== revision.current ||
                                   m.snapshot !== snapshot ||
                                   !Object.keys(m.reply.intake.patch).length
@@ -1672,6 +1751,8 @@ export default function Planner() {
                                   )
                                     return;
                                   setUndo({ h, s, origins });
+                                  if (m.reply.intake?.patch.hasSpouse === false)
+                                    setS((v) => ({ ...v, catchup: false }));
                                   setH((v) => ({
                                     ...v,
                                     ...m.reply.intake!.patch,
@@ -1710,7 +1791,8 @@ export default function Planner() {
                           )}
 
                         <strong>✦ 챗봇</strong>
-                        {m.snapshot !== snapshot &&
+                        {!m.reply.intake &&
+                          m.snapshot !== snapshot &&
                           !m.reply.candidates.some(
                             (c) =>
                               JSON.stringify({ h: c.household, s: c.plan }) ===

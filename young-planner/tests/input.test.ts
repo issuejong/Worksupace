@@ -64,11 +64,36 @@ it("blocks plans that depend on missing income or costs", async () => {
   ).toBe(true);
 });
 
-
 it("preserves known optional values when their plan is off", () => {
   const prepared = prepareScenario(example, none).household;
   expect(prepared?.jobIncome).toBe(example.jobIncome);
   expect(prepared?.benefit).toBe(example.benefit);
   expect(prepared?.catchupCost).toBe(example.catchupCost);
   expect(prepared?.catchupPension).toBe(example.catchupPension);
+});
+
+it("calculates for a single person without spouse values or spouse contributions", () => {
+  const single = {
+    ...example,
+    hasSpouse: false,
+    spouseBirth: "",
+    spouseEnd: "",
+    spouseIncome: NaN,
+    spousePension: NaN,
+  };
+  expect(cleanDraft(single).hasSpouse).toBe(false);
+  const prepared = prepareScenario(single, adopted);
+  expect(prepared.missing).toEqual([]);
+  expect(prepared.household).not.toBeNull();
+  const result = calculate(prepared.household!, adopted);
+  expect(
+    result.rows.every(
+      (row) =>
+        row.components["배우자급여"] === 0 &&
+        row.components["배우자연금"] === 0,
+    ),
+  ).toBe(true);
+  expect(result.endAssets).toBe(
+    calculate(prepared.household!, { ...adopted, catchup: false }).endAssets,
+  );
 });

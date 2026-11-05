@@ -10,6 +10,7 @@ const date = z
 const money = z.number().min(0).max(1000000);
 export const householdSchema = z
   .object({
+    hasSpouse: z.boolean().optional(),
     birth: date,
     spouseBirth: date,
     retire: date,
@@ -161,7 +162,12 @@ export function installment(loan: number, rate: number, months: number) {
 }
 export function homePayment(h: Household, year: number) {
   const age = Math.floor(
-    (year * 12 + 2 - Math.max(month(h.birth), month(h.spouseBirth))) / 12,
+    (year * 12 +
+      2 -
+      (h.hasSpouse === false
+        ? month(h.birth)
+        : Math.max(month(h.birth), month(h.spouseBirth)))) /
+      12,
   );
   if (age < 55 || age > 70) return null;
   const ages = [55, 60, 65, 70],
@@ -227,14 +233,14 @@ export function calculate(
     45: month(h.spouseEnd),
     12: month(h.childEnd),
     13: h.income,
-    14: h.spouseIncome,
+    14: h.hasSpouse === false ? 0 : h.spouseIncome,
     15: h.severance,
     16: h.living,
     17: h.living,
     18: h.child,
     19:
       h.pension * (1 + s.pensionOffset * (s.pensionOffset < 0 ? 0.005 : 0.006)),
-    20: h.spousePension,
+    20: h.hasSpouse === false ? 0 : h.spousePension,
     21: h.catchupPension,
     22: h.loan,
     23: h.loanRate,
@@ -252,7 +258,7 @@ export function calculate(
     40: +s.benefits,
     41: +s.job,
     42: +s.repay,
-    43: +s.catchup,
+    43: +(s.catchup && h.hasSpouse !== false),
     44: +(s.home && home > 0 && housingReady),
   });
   const result = engine(p, h.shock, h.shockYear, {

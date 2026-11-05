@@ -13,6 +13,7 @@ import {
   blankHousehold,
   prepareScenario,
   inputLabels,
+  intakeAnswer,
 } from "../../../lib/input";
 import { runHouseholdAgent } from "../../../lib/household-agent";
 import { providerStatus } from "../../../lib/ai-reliability";
@@ -34,6 +35,7 @@ const inputSchema = z
     question: z.string().trim().min(1).max(1500),
     operation: z.enum(["collect", "analyze"]).default("analyze"),
     household: draftSchema,
+    pendingIntake: z.boolean().default(false),
     solutions: solutionSchema,
     history: z
       .array(
@@ -274,7 +276,7 @@ export async function POST(req: Request) {
         messages: [
           {
             role: "system",
-            content: `한국어 은퇴 준비 입력 상담. 오늘 한국 날짜 ${new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" })}. JSON으로 답한다. answer는 짧은 상담과 다음 질문이다. 별도의 출력 형식 안내가 없으면 patch는 확인된 필드와 값의 객체다. 허용 필드 ${JSON.stringify(Object.keys(draftSchema.shape))}, 이름 ${JSON.stringify(inputLabels)}. 현재 입력 ${JSON.stringify(input.household)}. 최신 사용자 발언에 명시된 정보만 patch에 넣는다. 금액은 만원, 비율은 소수, 날짜는 YYYY-MM. 사용자 개인정보나 누락값을 추정하거나 보고서 예시값을 채우지 않는다. 금액·세전/세후·배우자·월/연·합계 포함 여부·월이 모호하면 먼저 물어보고 해당 값을 patch에 넣지 않는다. 모름은 0이 아니다. 미확인 항목은 추측하지 말고 patch에서 생략한다. 추가 질문은 한번에 1~2개만 한다. 추출한 값은 사용자의 반영 버튼으로만 적용된다. 필수 정보: 본인/배우자 출생연월, 은퇴월, 세후소득, 배우자근로종료월(소득있는경우), 금융자산, 대출잔액(있으면 금리/잔여개월), 월생활비, 세후퇴직금, 부부 예상 월연금. 이미 있는 값은 반복해 묻지 않는다. 계산과 자격 판정은 하지 않는다.`,
+            content: `한국어 은퇴 준비 입력 상담. 오늘 한국 날짜 ${new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" })}. JSON으로 답한다. answer는 짧은 상담과 다음 질문이다. 별도의 출력 형식 안내가 없으면 patch는 확인된 필드와 값의 객체다. 허용 필드 ${JSON.stringify(Object.keys(draftSchema.shape))}, 이름 ${JSON.stringify(inputLabels)}. 현재 입력 ${JSON.stringify(input.household)}. 최신 사용자 발언에 명시된 정보만 patch에 넣는다. 금액은 만원, 비율은 소수, 날짜는 YYYY-MM. 사용자 개인정보나 누락값을 추정하거나 보고서 예시값을 채우지 않는다. 금액·세전/세후·배우자·월/연·합계 포함 여부·월이 모호하면 먼저 물어보고 해당 값을 patch에 넣지 않는다. 모름은 0이 아니다. 미확인 항목은 추측하지 말고 patch에서 생략한다. 추가 질문은 한번에 1~2개만 한다. 추출한 값은 사용자의 반영 버튼으로만 적용된다. 배우자가 없거나 독신이라고 명시하면 hasSpouse에 false를 넣고 배우자 정보는 추출하지 않는다. 대출이 없다고 명시하면 loan에 0을 넣는다. 짧은 답변은 직전 질문이 요청한 항목을 기준으로 해석한다. 앱이 다음 질문을 정하므로 answer에는 짧은 확인만 쓴다. 계산과 자격 판정은 하지 않는다.`,
           },
           ...input.history,
           { role: "user", content: input.question },
@@ -283,9 +285,44 @@ export async function POST(req: Request) {
       const proposal = parseIntakeResponse(
         response.choices[0]?.message.content || "{}",
       );
+      const h = { ...blankHousehold(), ...input.household };
+      const patch = proposal.patch;
+      const shortAnswer = input.question.trim().replace(/[.!?。]+$/, "");
+      if (
+        /^(?:미혼(?:입니다|이에요)?|결혼\s*(?:안\s*함|안\s*했어요|안\s*했습니다)|배우자(?:가|는)?\s*없(?:음|어요|습니다))$/.test(
+          shortAnswer,
+        )
+      )
+        patch.hasSpouse = false;
+      if (
+        /^(?:주택담보)?대출(?:이|은)?\s*없(?:음|어요|습니다)$/.test(shortAnswer)
+      )
+        patch.loan = 0;
+      if (prepareScenario(h, input.solutions).missing[0] === "hasSpouse") {
+        if (/^(?:없어요|없습니다|없음|아니요)$/.test(shortAnswer))
+          patch.hasSpouse = false;
+        if (/^(?:있어요|있습니다|있음|네)$/.test(shortAnswer))
+          patch.hasSpouse = true;
+      }
+      if ((patch.hasSpouse ?? h.hasSpouse) === false) {
+        delete patch.spouseBirth;
+        delete patch.spouseIncome;
+        delete patch.spousePension;
+        delete patch.spouseEnd;
+      }
       return respond({
-        answer: proposal.answer,
-        intake: { patch: proposal.patch },
+        answer: intakeAnswer(
+          h,
+          input.solutions,
+          patch,
+          proposal.invalidFields.filter(
+            (label) =>
+              (patch.hasSpouse ?? h.hasSpouse) !== false ||
+              !label.startsWith("배우자"),
+          ),
+          Object.keys(patch).length > 0 || input.pendingIntake,
+        ),
+        intake: { patch },
         candidates: [],
         tools: ["collect"],
         searched: 0,
