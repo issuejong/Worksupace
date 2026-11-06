@@ -103,16 +103,18 @@ export function prepareScenario(h: Household, s: Solutions) {
     if (h.spouseIncome > 0) required.push("spouseEnd");
   }
   if (h.loan > 0) required.push("loanRate", "loanMonths");
-  if (s.home) required.push("house");
-  if (s.job) required.push("jobIncome");
-  if (s.benefits) required.push("benefit", "benefitMonths");
-  if (s.catchup && !single) required.push("catchupCost", "catchupPension");
+  const optional: (keyof Household)[] = [];
+  if (s.home && !s.homeOverride) optional.push("house");
+  if (s.job) optional.push("jobIncome");
+  if (s.benefits) optional.push("benefit", "benefitMonths");
+  if (s.catchup && !single) optional.push("catchupCost", "catchupPension");
+  const optionalMissing = optional.filter((key) => !Number.isFinite(h[key]));
   const missing = required.filter((k) =>
     typeof h[k] === "number"
       ? !Number.isFinite(h[k])
       : h[k] === undefined || h[k] === "",
   );
-  if (missing.length) return { missing, household: null };
+  if (missing.length) return { missing, optionalMissing, household: null };
   const normalized = {
     ...h,
     house: Number.isFinite(h.house) ? h.house : 0,
@@ -126,10 +128,19 @@ export function prepareScenario(h: Household, s: Solutions) {
     benefit: Number.isFinite(h.benefit) ? h.benefit : 0,
     benefitMonths: Number.isFinite(h.benefitMonths) ? h.benefitMonths : 0,
     catchupCost: Number.isFinite(h.catchupCost) ? h.catchupCost : 0,
-    catchupPension: Number.isFinite(h.catchupPension) ? h.catchupPension : 0,
+    catchupPension:
+      Number.isFinite(h.catchupCost) && Number.isFinite(h.catchupPension)
+        ? h.catchupPension
+        : 0,
   };
   const parsed = householdSchema.safeParse(normalized);
-  return { missing, household: parsed.success ? parsed.data : null };
+  return { missing, optionalMissing, household: parsed.success ? parsed.data : null };
+}
+
+export function optionalPlanHint(fields: (keyof Household)[]) {
+  if (!fields.length) return "";
+  const labels = fields.map((key) => inputLabels[key] || key).join(", ");
+  return `선택 입력: ${labels}. 채팅에 알려주시면 반영할 수 있어요. 비워두면 0원·0개월 기준으로 바로 결과를 볼 수 있어요.`;
 }
 export const proposalSchema = z
   .object({ answer: z.string().min(1).max(2500), patch: draftSchema })
@@ -277,6 +288,7 @@ export function intakeAnswer(
       ? `형식이나 범위를 확인할 항목은 제외했어요. ${invalid.join(" · ")}`
       : "",
     followUp,
+    next.household ? optionalPlanHint(next.optionalMissing) : "",
   ]
     .filter(Boolean)
     .join("\n\n");

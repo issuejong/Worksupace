@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState, useId } from "react";
+import { useEffect, useMemo, useRef, useState, useId, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
@@ -35,6 +35,7 @@ import {
   inputLabels,
   mergeIntake,
   readScenarioFile,
+  optionalPlanHint,
 } from "../lib/input";
 import type { Candidate } from "../lib/household-agent";
 import {
@@ -157,6 +158,18 @@ function save(name: string, text: string, type = "application/json") {
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(u), 1000);
+}
+
+function DetailSummary({ children }: { children: ReactNode }) {
+  return (
+    <summary className="yp-detail-summary">
+      <span>{children}</span>
+      <span className="yp-detail-action" aria-hidden="true">
+        <span className="yp-detail-open">＋ 열기</span>
+        <span className="yp-detail-close">− 닫기</span>
+      </span>
+    </summary>
+  );
 }
 
 function NumberField({
@@ -461,6 +474,7 @@ function PlannerWorkspace({
     } | null>(null),
     [applied, setApplied] = useState("");
   const abort = useRef<AbortController | null>(null),
+    submittedExplanation = useRef(false),
     sending = useRef(false),
     thread = useRef<HTMLDivElement | null>(null),
     agentInput = useRef<HTMLTextAreaElement | null>(null),
@@ -767,10 +781,11 @@ function PlannerWorkspace({
     setApplied("");
     setNotice("이전 입력으로 되돌렸어요.");
   }
-  async function ask(prompt = question, clearDraft = true) {
+  async function ask(prompt = question, clearDraft = true, explain = false) {
     const q = prompt.trim();
     if (!q || sending.current || retryUntil > Date.now()) return;
     sending.current = true;
+    submittedExplanation.current = explain;
     setSubmittedQuestion(q);
     setBusy(true);
     setAIError("");
@@ -796,7 +811,7 @@ function PlannerWorkspace({
         },
         body: JSON.stringify({
           question: q,
-          operation: collecting ? "collect" : "analyze",
+          operation: explain ? "explain" : collecting ? "collect" : "analyze",
           household: cleanDraft({ ...h, ...pendingPatch }),
           pendingIntake: Boolean(
             pendingPatch && Object.keys(pendingPatch).length,
@@ -1161,10 +1176,7 @@ function PlannerWorkspace({
                     key={g.title}
                     open={i < 2 ? true : undefined}
                   >
-                    <summary>
-                      {g.title}
-                      <span>⌄</span>
-                    </summary>
+                    <DetailSummary>{g.title}</DetailSummary>
                     <p className="yp-note">{g.description}</p>
                     {g.title === "나와 배우자" && (
                       <label className="yp-field">
@@ -1197,11 +1209,21 @@ function PlannerWorkspace({
                     {g.fields.map(field)}
                   </details>
                 ))}
-                {(s.job || s.benefits || s.catchup) && (
-                  <details className="yp-input-group" open>
-                    <summary>선택한 준비 방법의 정보</summary>
+                {(s.job ||
+                  s.benefits ||
+                  (s.catchup && h.hasSpouse !== false) ||
+                  (s.home && !s.homeOverride)) && (
+                  <details className="yp-input-group">
+                    <DetailSummary>은퇴 계획의 금액·기간 (선택)</DetailSummary>
+                    <p className="yp-note">
+                      선택한 구직급여, 재취업, 추납, 주택연금의 계산에 쓰이는
+                      정보예요. 비워두면 0원·0개월로 계산하고 결과는 볼 수 있어요.
+                    </p>
                     {(s.job
-                      ? ([["jobIncome", "재취업 월급"]] as FieldSpec[])
+                      ? ([
+                          ["jobIncome", "재취업 월급"],
+                          ["jobDelay", "재취업 대기 기간", "개월"],
+                        ] as FieldSpec[])
                       : []
                     ).map(field)}
                     {(s.benefits
@@ -1211,19 +1233,19 @@ function PlannerWorkspace({
                         ] as FieldSpec[])
                       : []
                     ).map(field)}
-                    {(s.catchup
+                    {(s.catchup && h.hasSpouse !== false
                       ? ([
                           ["catchupCost", "추납 비용"],
                           ["catchupPension", "추납 후 배우자 월 연금"],
                         ] as FieldSpec[])
                       : []
                     ).map(field)}
+                    {s.home && !s.homeOverride &&
+                      field(["house", "주택연금 계산에 사용할 집값"])}
                   </details>
                 )}
                 <details className="yp-input-group">
-                  <summary>
-                    계산 가정과 추가 지출<span>⌄</span>
-                  </summary>
+                  <DetailSummary>계산 가정과 추가 지출</DetailSummary>
                   <p className="yp-note">
                     금액은 한 자리까지 표시해요. 예시의 정밀 계산값은 직접
                     수정하기 전까지 유지돼요.
@@ -1231,9 +1253,7 @@ function PlannerWorkspace({
                   {assumptionFields.map(field)}
                 </details>
                 <details className="yp-input-group">
-                  <summary>
-                    저장·불러오기<span>⌄</span>
-                  </summary>
+                  <DetailSummary>저장·불러오기</DetailSummary>
                   <p className="yp-note">
                     자동 저장과 별도로 입력 조건을 내 기기에 파일로 저장할 수
                     있어요.
@@ -1383,6 +1403,7 @@ function PlannerWorkspace({
                           void ask(
                             "현재 은퇴 결과를 쉬운 말로 설명해 주세요. 계획 적용 전후에 돈이 부족해지는 시점, 가장 적게 남는 돈, 마지막 잔액이 어떻게 달라지는지 알려 주세요.",
                             false,
+                            true,
                           );
                         }}
                       >
@@ -1462,6 +1483,11 @@ function PlannerWorkspace({
                       계획 적용 전 {fmt(h.beforeReturn * 100)}% / 계획 적용 후{" "}
                       {fmt(h.planReturn * 100)}%로 달라 결과에 함께 반영돼요.
                     </p>
+                    {prepared.optionalMissing.length > 0 && (
+                      <p className="yp-note">
+                        선택한 계획 중 입력하지 않은 금액과 기간은 0원·0개월로 계산했어요.
+                      </p>
+                    )}
                   </section>
                 </div>
               )}
@@ -1597,11 +1623,9 @@ function PlannerWorkspace({
                           </label>
                           {s[key] && (
                             <details className="yp-plan-detail">
-                              <summary>
-                                {key === "repay"
-                                  ? "얼마를 갚나요?"
-                                  : "금액·기간 조절"}
-                              </summary>
+                              <DetailSummary>
+                                {key === "repay" ? "상환 방식" : "금액·기간 조절"}
+                              </DetailSummary>
                               {fields.map(field)}
                               {key === "repay" && (
                                 <p>
@@ -1718,6 +1742,12 @@ function PlannerWorkspace({
                         : "계획에 입력한 날짜, 기간, 금액의 범위를 확인해 주세요."}
                     </p>
                   )}
+                  {prepared.optionalMissing.length > 0 && (
+                    <p className="yp-note">
+                      입력하지 않은 금액과 기간은 0원·0개월로 계산해요.
+                      금액·기간을 열거나 채팅에서 알려줄 수 있어요.
+                    </p>
+                  )}
                   {current?.warnings.map((w) => (
                     <p className="yp-warning" role="status" key={w}>
                       △ {w}
@@ -1731,6 +1761,9 @@ function PlannerWorkspace({
                     >
                       결과 비교하기 →
                     </button>
+                    {!isExample && (
+                      <button onClick={() => goTo("chat")}>채팅으로 계획 조건 입력</button>
+                    )}
                     <button disabled={!result} onClick={() => openChat()}>
                       AI와 다른 계획 비교하기
                     </button>
@@ -1772,7 +1805,7 @@ function PlannerWorkspace({
                     </p>
                   </div>
                   <details>
-                    <summary>월별 수입·지출 상세</summary>
+                    <DetailSummary>월별 수입·지출 상세</DetailSummary>
                     <p className="yp-note">
                       모든 금액은 만 원 · 수입에는 운용수익이 포함돼요.
                     </p>
@@ -1810,7 +1843,7 @@ function PlannerWorkspace({
                     </div>
                   </details>
                   <details>
-                    <summary>내 결과와 보고서 자료 저장</summary>
+                    <DetailSummary>내 결과와 보고서 자료 저장</DetailSummary>
                     <div className="yp-actions">
                       <button onClick={csv}>월별 계산 CSV</button>
                       <button onClick={verification}>
@@ -2004,7 +2037,7 @@ function PlannerWorkspace({
                               </div>
                             </dl>
                             <details>
-                              <summary>변경 조건 {diff.length}개</summary>
+                              <DetailSummary>변경 조건 {diff.length}개</DetailSummary>
                               <ul>
                                 {diff.map((d) => (
                                   <li key={d}>{d}</li>
@@ -2071,6 +2104,7 @@ function PlannerWorkspace({
                         void ask(
                           submittedQuestion,
                           question.trim() === submittedQuestion,
+                          submittedExplanation.current,
                         )
                       }
                       disabled={busy || !submittedQuestion || retrySeconds > 0}
@@ -2155,6 +2189,12 @@ function PlannerWorkspace({
                       내 결과 보기
                     </button>
                   </div>
+                  {intakeComplete && (
+                    <p className="yp-note">
+                      {optionalPlanHint(intakePrepared.optionalMissing) ||
+                        "구직급여나 재취업 월급 같은 은퇴 계획도 채팅으로 알려줄 수 있어요. 지금 바로 결과를 볼 수 있어요."}
+                    </p>
+                  )}
                   {checkInput && (busy || !intakeComplete) && (
                     <p className="yp-error" role="alert">
                       {busy

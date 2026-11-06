@@ -205,22 +205,24 @@ export function calculate(
     home = s.homeOverride || homePayment(h, s.homeYear, s.homeMonth) || 0;
   const warnings: string[] = [];
   const homeStart = s.homeYear * 12 + s.homeMonth;
+  const hasHousingAmount = h.house > 0 || s.homeOverride > 0;
+  const paysBenefits = s.benefits && h.benefit > 0 && h.benefitMonths > 0;
   const naturallyRepaid = homeStart >= start + h.loanMonths;
   const housingReady =
     h.loan === 0 ||
     naturallyRepaid ||
     (s.repay && retire + 1 >= start && homeStart >= retire + 1);
-  if (s.home && !housingReady && s.repay)
+  if (s.home && hasHousingAmount && !housingReady && s.repay)
     warnings.push(
       retire + 1 < start
         ? "퇴직 시 상환 예정월이 분석 시작 전입니다. 상환했다면 분석 시작 시점의 대출 잔액을 수정하세요."
         : "주택연금 개시가 대출 상환보다 빠릅니다. 가입 시점을 상환 이후로 바꾸세요.",
     );
-  if (s.home && !home)
+  if (s.home && hasHousingAmount && !home)
     warnings.push(
       "주택연금 표의 지원 연령(연소자 55~70세)을 벗어났습니다. 확인한 월지급금을 세부 설정에 입력하세요.",
     );
-  if (s.home && !housingReady && !s.repay)
+  if (s.home && hasHousingAmount && !housingReady && !s.repay)
     warnings.push(
       "주담대 잔액이 있어 일반 종신지급형 주택연금을 적용하지 않았습니다. 대출 상환 또는 별도 상품 조건 확인이 필요합니다.",
     );
@@ -256,17 +258,17 @@ export function calculate(
     25: h.assets,
     31: h.benefit,
     32: h.benefitMonths,
-    33: retire + 1 + (s.benefits ? h.benefitMonths : 0) + h.jobDelay,
+    33: retire + 1 + (paysBenefits ? h.benefitMonths : 0) + h.jobDelay,
     34: normal - 1,
     35: h.jobIncome,
     36: h.catchupCost,
     37: start,
     38: homeStart,
     39: home,
-    40: +s.benefits,
-    41: +s.job,
+    40: +paysBenefits,
+    41: +(s.job && h.jobIncome > 0),
     42: +s.repay,
-    43: +(s.catchup && h.hasSpouse !== false),
+    43: +(s.catchup && h.hasSpouse !== false && h.catchupPension > 0),
     44: +(s.home && home > 0 && housingReady),
   });
   const result = engine(p, h.shock, h.shockYear, {

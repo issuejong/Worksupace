@@ -6,6 +6,7 @@ import {
   draftSchema,
   readScenarioFile,
   mergeIntake,
+  intakeAnswer,
 } from "../src/lib/input";
 import { example, adopted, none, calculate } from "../src/lib/household";
 it("starts without personal example values or a calculation", () => {
@@ -23,7 +24,7 @@ it("preserves the full example calculation", () => {
   const h = prepareScenario(example, adopted).household!;
   expect(calculate(h, adopted).minAssets).toBeCloseTo(3616.55185834155, 6);
 });
-it("requires optional strategy data only when enabled", () => {
+it("keeps selected strategies optional and ignores their unfilled cash flows", () => {
   const h = {
     ...example,
     jobIncome: NaN,
@@ -34,7 +35,16 @@ it("requires optional strategy data only when enabled", () => {
     house: NaN,
   };
   expect(prepareScenario(h, none).household).not.toBeNull();
-  expect(prepareScenario(h, adopted).missing).toContain("catchupCost");
+  const ready = prepareScenario(h, adopted);
+  expect(ready.missing).toEqual([]);
+  expect(ready.optionalMissing).toContain("catchupCost");
+  expect(ready.household?.benefitMonths).toBe(0);
+  const result = calculate(ready.household!, adopted);
+  expect(result.rows.every((row) =>
+    ["구직급여", "재취업", "추납", "주택연금"].every((key) => row.components[key] === 0),
+  )).toBe(true);
+  expect(result.rows.some((row) => row.components.배우자연금 > 0)).toBe(true);
+  expect(intakeAnswer(h, adopted, {}, [], false)).toContain("바로 결과를 볼 수 있어요");
 });
 it("does not require loan terms when the user reports no loan", () => {
   const h = { ...example, loan: 0, loanRate: NaN, loanMonths: NaN };

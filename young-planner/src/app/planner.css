@@ -277,8 +277,37 @@
 .yp-input-group > summary::-webkit-details-marker {
   display: none;
 }
-.yp-input-group[open] > summary > span {
-  transform: rotate(180deg);
+.yp-app summary.yp-detail-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  list-style: none;
+  min-height: 44px;
+}
+.yp-detail-summary::-webkit-details-marker {
+  display: none;
+}
+.yp-detail-action {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--green);
+  font-size: 14px;
+}
+.yp-detail-close,
+details[open] > .yp-detail-summary .yp-detail-open {
+  display: none;
+}
+details[open] > .yp-detail-summary .yp-detail-close {
+  display: inline;
+}
+details[open] > .yp-detail-summary .yp-detail-action {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
 }
 .yp-field {
   display: flex;
