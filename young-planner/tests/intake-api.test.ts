@@ -10,10 +10,35 @@ vi.mock("openai", () => {
   return { default: Fake };
 });
 import { POST } from "../src/app/api/agent/route";
-import { none } from "../src/lib/household";
+import { adopted, example, none } from "../src/lib/household";
 afterEach(() => {
   vi.unstubAllEnvs();
   create.mockReset();
+});
+
+it("renders the engine's exact metrics even when the explanation model sends a wrong amount", async () => {
+  vi.stubEnv("GEMINI_API_KEY", "test-only");
+  vi.stubEnv("GEMINI_MODEL", "test");
+  vi.stubEnv("AI_ACCESS_TOKEN", "");
+  create.mockResolvedValue({
+    choices: [{ message: { content: "최저 금융자산은 361.7만 원입니다." } }],
+  });
+  const response = await POST(new Request("http://local/api/agent", {
+    method: "POST",
+    headers: { "x-forwarded-for": "explanation-test" },
+    body: JSON.stringify({
+      operation: "explain",
+      question: "내 결과를 설명해 주세요.",
+      household: example,
+      solutions: adopted,
+    }),
+  }));
+  expect(response.status).toBe(200);
+  const { answer } = await response.json();
+  expect(answer).toContain("3,616.6만 원");
+  expect(answer).toContain("2031년 2월");
+  expect(answer).toContain("21,301만 원 부족");
+  expect(answer).not.toContain("361.7만 원");
 });
 it("collects partial input without requiring a financial result", async () => {
   vi.stubEnv("GEMINI_API_KEY", "test-only");

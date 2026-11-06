@@ -16,6 +16,7 @@ import {
   intakeAnswer,
 } from "../../../lib/input";
 import { runHouseholdAgent } from "../../../lib/household-agent";
+import { retirementExplanation } from "../../../lib/result-explanation";
 import { providerStatus } from "../../../lib/ai-reliability";
 import {
   diagnosticFetch,
@@ -33,7 +34,7 @@ export const maxDuration = 60;
 const inputSchema = z
   .object({
     question: z.string().trim().min(1).max(1500),
-    operation: z.enum(["collect", "analyze"]).default("analyze"),
+    operation: z.enum(["collect", "analyze", "explain"]).default("analyze"),
     household: draftSchema,
     pendingIntake: z.boolean().default(false),
     solutions: solutionSchema,
@@ -126,7 +127,7 @@ export async function POST(req: Request) {
     context.operation = parsed.data.operation;
     const gemini =
         Boolean(process.env.GEMINI_API_KEY) &&
-        (!process.env.GROQ_API_KEY || parsed.data.operation === "analyze"),
+        (!process.env.GROQ_API_KEY || parsed.data.operation !== "collect"),
       groq = !gemini && Boolean(process.env.GROQ_API_KEY),
       apiKey = gemini
         ? process.env.GEMINI_API_KEY
@@ -343,6 +344,28 @@ export async function POST(req: Request) {
         },
         { status: 400 },
       );
+    if (input.operation === "explain") {
+      const { facts, takeaways } = retirementExplanation(ready, input.solutions);
+      const response = await router.complete({
+        model,
+        max_tokens: 128,
+        messages: [
+          {
+            role: "system",
+            content: "은퇴 전망을 처음 보는 사람에게 먼저 보여줄 요점을 고르세요. 자금 부족은 shortfall, 비상자금은 reserve, 기말 잔액은 balance입니다. shortfall, reserve, balance 중 하나만 출력하세요.",
+          },
+          { role: "user", content: `${facts}\n${JSON.stringify(takeaways)}` },
+        ],
+      });
+      const focus = response.choices[0]?.message.content?.trim().toLowerCase();
+      const selected = focus === "reserve" || focus === "balance" ? focus : "shortfall";
+      return respond({
+        answer: `${takeaways[selected]}\n\n${facts}\n\n‘부족’은 시뮬레이션에서 충당하지 못한 생활자금이에요.`,
+        candidates: [],
+        tools: ["explain"],
+        searched: 0,
+      });
+    }
     return respond(
       await runHouseholdAgent(
         primary.client,
