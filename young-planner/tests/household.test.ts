@@ -62,6 +62,7 @@ describe("household simulator", () => {
   });
   it("supports zero loan and zero-interest loans", () => {
     expect(installment(1200, 0, 120)).toBe(10);
+    expect(installment(1200, 1e-16, 120)).toBeCloseTo(10);
     expect(
       calculate({ ...example, loan: 0 }, adopted).rows.every(
         (r) => r.loan === 0,
@@ -94,6 +95,20 @@ describe("household simulator", () => {
     const a = calculate(example, { ...adopted, repay: false });
     expect(a.rows.every((r) => r.components.주택연금 === 0)).toBe(true);
     expect(a.warnings.length).toBeGreaterThan(0);
+  });
+  it("starts the housing pension after the mortgage's scheduled final payment", () => {
+    const h = { ...example, loanMonths: 12 };
+    const plan = { ...none, home: true, homeYear: 2027 };
+    const beforePayoff = calculate(h, { ...plan, homeMonth: 10 });
+    const afterPayoff = calculate(h, { ...plan, homeMonth: 11 });
+    expect(beforePayoff.rows.some((r) => r.components.주택연금 > 0)).toBe(false);
+    expect(afterPayoff.rows.find((r) => r.date === "2027-11")?.components.주택연금)
+      .toBeGreaterThan(0);
+    expect(afterPayoff.warnings).toEqual([]);
+  });
+  it("does not wait through disabled unemployment benefits before starting work", () => {
+    const result = calculate(example, { ...none, job: true });
+    expect(result.rows.find((row) => row.components.재취업 > 0)?.date).toBe("2027-02");
   });
   it("does not accept invalid dates or negative inputs", () => {
     expect(
