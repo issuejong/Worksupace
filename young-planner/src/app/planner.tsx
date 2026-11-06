@@ -21,6 +21,7 @@ import {
   calculate,
   householdSchema,
   solutionSchema,
+  homePayment,
   Household,
   Solutions,
   Simulation,
@@ -32,6 +33,8 @@ import {
   cleanDraft,
   prepareScenario,
   inputLabels,
+  mergeIntake,
+  readScenarioFile,
 } from "../lib/input";
 import type { Candidate } from "../lib/household-agent";
 import {
@@ -164,6 +167,7 @@ function NumberField({
   onChange,
   error,
   hint,
+  onBlur,
 }: {
   label: string;
   value: number;
@@ -172,6 +176,7 @@ function NumberField({
   onChange: (v: number) => void;
   error?: string;
   hint?: string;
+  onBlur?: () => void;
 }) {
   const errorId = useId();
   const display = Number.isFinite(value)
@@ -207,7 +212,10 @@ function NumberField({
             )
               onChange(Number(v));
           }}
-          onBlur={() => setDraft(display)}
+          onBlur={() => {
+            setDraft(display);
+            onBlur?.();
+          }}
         />
         <span>{unit}</span>
       </span>
@@ -442,6 +450,9 @@ function PlannerWorkspace({
     [busy, setBusy] = useState(false),
     [waitingSeconds, setWaitingSeconds] = useState(0),
     [aiError, setAIError] = useState(""),
+    [retryUntil, setRetryUntil] = useState(0),
+    [retrySeconds, setRetrySeconds] = useState(0),
+    [homeOverrideError, setHomeOverrideError] = useState(""),
     [messages, setMessages] = useState<Message[]>([]),
     [undo, setUndo] = useState<{
       h: Household;
@@ -467,6 +478,17 @@ function PlannerWorkspace({
     );
     return () => window.clearInterval(timer);
   }, [busy]);
+  useEffect(() => {
+    if (!retryUntil) return;
+    function tick() {
+      const seconds = Math.max(0, Math.ceil((retryUntil - Date.now()) / 1000));
+      setRetrySeconds(seconds);
+      if (!seconds) setRetryUntil(0);
+    }
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [retryUntil]);
   const [needsToken, setNeedsToken] = useState(false);
   const snapshot = JSON.stringify({ h, s }),
     snapshotRef = useRef(snapshot);
@@ -547,6 +569,12 @@ function PlannerWorkspace({
       m.snapshot === snapshot &&
       m.revision === revision.current,
   );
+  const pendingPatch = pendingIntake?.reply.intake?.patch ?? {};
+  const intake = mergeIntake(h, s, pendingPatch);
+  const intakePrepared = prepareScenario(intake.household, intake.solutions);
+  const intakeComplete =
+    Boolean(intakePrepared.household) &&
+    solutionSchema.safeParse(intake.solutions).success;
   const activeView =
     pathname === "/main"
       ? "home"
@@ -554,7 +582,7 @@ function PlannerWorkspace({
         ? "chat"
         : isExample
           ? "result"
-          : view === "result" && !result
+          : view === "result" && !result && tab !== "plan"
             ? "manual"
             : view;
   const inlineChat = activeView === "chat";
@@ -574,7 +602,13 @@ function PlannerWorkspace({
     setBusy(false);
     if (next === "manual" || next === "result") setView(next);
     const path =
-      next === "home" ? "/main" : next === "chat" ? "/chat" : "/dashboard";
+      next === "home"
+        ? "/main"
+        : next === "chat"
+          ? "/chat"
+          : next === "result" && isExample
+            ? "/dashboard/example"
+            : "/dashboard";
     if (path !== pathname) router.push(path);
     setCheckInput(false);
     setAIError("");
@@ -602,6 +636,27 @@ function PlannerWorkspace({
   function showResult() {
     setTab("result");
     goTo("result");
+  }
+  function applyIntake(openResult: boolean) {
+    if (busy || (openResult && !intakeComplete)) {
+      setCheckInput(true);
+      return;
+    }
+    if (Object.keys(pendingPatch).length) {
+      setUndo({ h, s, origins });
+      setH(intake.household);
+      setS(intake.solutions);
+      setOrigins((previous) => ({
+        ...previous,
+        ...Object.fromEntries(
+          Object.keys(pendingPatch).map((key) => [key, "chat"]),
+        ),
+      }));
+      setApplied("");
+      setNotice("대화에서 확인한 정보를 반영했어요.");
+    }
+    setCheckInput(false);
+    if (openResult) showResult();
   }
   const validation = householdSchema.safeParse(h),
     planValidation = solutionSchema.safeParse(s);
@@ -714,11 +769,12 @@ function PlannerWorkspace({
   }
   async function ask(prompt = question, clearDraft = true) {
     const q = prompt.trim();
-    if (!q || sending.current) return;
+    if (!q || sending.current || retryUntil > Date.now()) return;
     sending.current = true;
     setSubmittedQuestion(q);
     setBusy(true);
     setAIError("");
+    setCheckInput(false);
     const request = new AbortController();
     abort.current = request;
     const signal = request.signal,
@@ -757,6 +813,11 @@ function PlannerWorkspace({
       const body = await response.json();
       if (!response.ok) {
         if (response.status === 401) setNeedsToken(true);
+        const wait = Number(response.headers.get("Retry-After"));
+        if (Number.isInteger(wait) && wait > 0) {
+          setRetrySeconds(wait);
+          setRetryUntil(Date.now() + wait * 1000);
+        }
         const reference =
           typeof body.requestId === "string" &&
           /^[a-f0-9-]{36}$/i.test(body.requestId)
@@ -890,6 +951,7 @@ function PlannerWorkspace({
     );
   }
   const current = result?.after;
+  const estimatedHomePayment = homePayment(h, s.homeYear, s.homeMonth) || 0;
   const status = current?.firstNegative
     ? "자금 부족 예상"
     : current?.passes
@@ -960,9 +1022,11 @@ function PlannerWorkspace({
                 ? "은퇴 시기와 생활비를 편하게 알려주세요. AI가 한 가지씩 물어볼게요."
                 : activeView === "manual"
                   ? "예상 금액을 만 원 단위로 적어 주세요."
-                  : current?.firstNegative
-                    ? `${dateText(current.firstNegative)}부터 자금이 부족해져요.`
-                    : `계획을 적용하면 ${h.endYear}년까지 자금이 소진되지 않아요.`}
+                  : !current
+                    ? "계산에 필요한 계획 조건을 확인해 주세요."
+                    : current.firstNegative
+                      ? `${dateText(current.firstNegative)}부터 자금이 부족해져요.`
+                      : `계획을 적용하면 ${h.endYear}년까지 자금이 소진되지 않아요.`}
             </p>
           </section>
         )}
@@ -1208,14 +1272,15 @@ function PlannerWorkspace({
                             const value = JSON.parse(
                               (await f.text()).replace(/^\ufeff/, ""),
                             );
-                            const nextH = householdSchema.parse(
-                                value.household,
-                              ),
-                              nextS = solutionSchema.parse(value.solutions);
+                            const {
+                              household: nextH,
+                              solutions: nextS,
+                              fields,
+                            } = readScenarioFile(value);
                             setH(nextH);
                             setOrigins(
                               Object.fromEntries(
-                                Object.keys(nextH).map((k) => [k, "file"]),
+                                fields.map((k) => [k, "file"]),
                               ),
                             );
                             setS(nextS);
@@ -1262,7 +1327,7 @@ function PlannerWorkspace({
               </div>
             </section>
           )}
-          {activeView === "result" && result && current && (
+          {activeView === "result" && (
             <div id="yp-analysis" className="yp-analysis">
               <nav className="yp-tabs" aria-label="분석 내용 선택">
                 {(
@@ -1276,13 +1341,14 @@ function PlannerWorkspace({
                     key={key}
                     aria-pressed={tab === key}
                     aria-controls={`yp-${key}`}
+                    disabled={key !== "plan" && !result}
                     onClick={() => setTab(key)}
                   >
                     {label}
                   </button>
                 ))}
               </nav>
-              {tab === "result" && (
+              {tab === "result" && result && current && (
                 <div id="yp-result" className="yp-stack">
                   <div className="yp-forecast-grid">
                     <Charts
@@ -1311,7 +1377,7 @@ function PlannerWorkspace({
                       </p>
                       <button
                         className="yp-primary"
-                        disabled={busy}
+                        disabled={busy || retrySeconds > 0}
                         onClick={() => {
                           openChat();
                           void ask(
@@ -1465,10 +1531,16 @@ function PlannerWorkspace({
                         [
                           "job",
                           "다시 일하기",
-                          "구직급여 기간이 끝난 뒤부터 본인 정상 연금 전까지 일해요.",
+                          s.benefits
+                            ? "구직급여 기간이 끝난 뒤부터 본인 정상 연금 전까지 일해요."
+                            : "은퇴 다음 달부터 본인 정상 연금 전까지 일해요.",
                           [
                             ["jobIncome", "재취업 월급"],
-                            ["jobDelay", "구직급여 종료 후 추가 대기", "개월"],
+                            [
+                              "jobDelay",
+                              s.benefits ? "구직급여 종료 후 추가 대기" : "은퇴 후 추가 대기",
+                              "개월",
+                            ],
                           ],
                         ],
                         [
@@ -1490,7 +1562,7 @@ function PlannerWorkspace({
                           "home",
                           "집으로 연금 받기",
                           "집에 살면서 매달 돈을 받는 주택연금을 비교해요.",
-                          [],
+                          [["house", "현재 주택가격"]],
                         ],
                       ] as [
                         "benefits" | "job" | "repay" | "catchup" | "home",
@@ -1573,20 +1645,21 @@ function PlannerWorkspace({
                                   </label>
                                   <p className="yp-note">
                                     {s.homeYear}년 {s.homeMonth}월부터 월{" "}
-                                    {fmt(current.homeMonthly)}만 원 추정 · 실제
+                                    {fmt(s.homeOverride || estimatedHomePayment)}만 원 추정 · 실제
                                     지급액은 한국주택금융공사에서 확인해 주세요.
                                   </p>
                                   <label className="yp-checkbox">
                                     <input
                                       type="checkbox"
                                       checked={s.homeOverride > 0}
-                                      onChange={(e) =>
+                                      onChange={(e) => {
+                                        setHomeOverrideError("");
                                         setPlan({
                                           homeOverride: e.target.checked
-                                            ? Math.max(0.1, current.homeMonthly)
+                                            ? Math.min(500, Math.max(0.1, estimatedHomePayment))
                                             : 0,
-                                        })
-                                      }
+                                        });
+                                      }}
                                     />
                                     확인한 주택연금 월액 직접 입력
                                   </label>
@@ -1595,9 +1668,16 @@ function PlannerWorkspace({
                                       label="확인한 주택연금 월액"
                                       value={s.homeOverride}
                                       precision={3}
-                                      onChange={(v) =>
-                                        setPlan({ homeOverride: v })
-                                      }
+                                      error={homeOverrideError}
+                                      onBlur={() => setHomeOverrideError("")}
+                                      onChange={(v) => {
+                                        if (!Number.isFinite(v) || v <= 0 || v > 500) {
+                                          setHomeOverrideError("0보다 크고 500만 원 이하인 금액을 입력해 주세요. 그전 금액으로 계산 중이에요.");
+                                          return;
+                                        }
+                                        setHomeOverrideError("");
+                                        setPlan({ homeOverride: v });
+                                      }}
                                     />
                                   )}
                                 </>
@@ -1631,7 +1711,14 @@ function PlannerWorkspace({
                     일찍 받으면 월 0.5% 감액, 늦게 받으면 월 0.6% 가산하는 단순
                     비교예요. 가입기간·소득 등 실제 자격은 별도로 확인해야 해요.
                   </p>
-                  {current.warnings.map((w) => (
+                  {!result && (
+                    <p className="yp-error" role="alert">
+                      {prepared.missing.length
+                        ? `계산에 필요한 정보가 있어요. ${prepared.missing.map((key) => inputLabels[key] || fieldNames[key] || key).join(", ")}을 확인해 주세요.`
+                        : "계획에 입력한 날짜, 기간, 금액의 범위를 확인해 주세요."}
+                    </p>
+                  )}
+                  {current?.warnings.map((w) => (
                     <p className="yp-warning" role="status" key={w}>
                       △ {w}
                     </p>
@@ -1639,17 +1726,18 @@ function PlannerWorkspace({
                   <div className="yp-actions">
                     <button
                       className="yp-primary"
+                      disabled={!result}
                       onClick={() => setTab("result")}
                     >
-                      03 · 결과 비교하기 →
+                      결과 비교하기 →
                     </button>
-                    <button onClick={() => openChat()}>
+                    <button disabled={!result} onClick={() => openChat()}>
                       AI와 다른 계획 비교하기
                     </button>
                   </div>
                 </section>
               )}
-              {tab === "basis" && (
+              {tab === "basis" && current && (
                 <section id="yp-basis" className="yp-card yp-stack">
                   <div>
                     <h2>계산은 이렇게 했어요</h2>
@@ -1825,39 +1913,19 @@ function PlannerWorkspace({
                                 m.snapshot !== snapshot ||
                                 !Object.keys(m.reply.intake.patch).length
                               }
-                              onClick={() => {
-                                if (
-                                  snapshotRef.current !== m.snapshot ||
-                                  m.revision !== revision.current
-                                )
-                                  return;
-                                setUndo({ h, s, origins });
-                                if (m.reply.intake?.patch.hasSpouse === false)
-                                  setS((v) => ({ ...v, catchup: false }));
-                                setH((v) => ({
-                                  ...v,
-                                  ...m.reply.intake!.patch,
-                                }));
-                                setOrigins((v) => ({
-                                  ...v,
-                                  ...Object.fromEntries(
-                                    Object.keys(m.reply.intake!.patch).map(
-                                      (k) => [k, "chat"],
-                                    ),
-                                  ),
-                                }));
-                                setNotice(
-                                  "대화에서 확인한 정보를 반영했어요. 직접 입력에서도 수정할 수 있어요.",
-                                );
-                              }}
+                              onClick={() => applyIntake(intakeComplete)}
                             >
-                              {Object.entries(m.reply.intake.patch).every(
-                                ([k, v]) =>
-                                  h[k as keyof Household] === v &&
-                                  origins[k as keyof Household] === "chat",
-                              )
-                                ? "반영된 정보"
-                                : "정리한 정보 반영"}
+                              {m === pendingIntake
+                                ? intakeComplete
+                                  ? "정보 반영하기 및 결과 보기"
+                                  : "정보 반영하기"
+                                : Object.entries(m.reply.intake.patch).every(
+                                      ([k, v]) =>
+                                        h[k as keyof Household] === v &&
+                                        origins[k as keyof Household] === "chat",
+                                    )
+                                  ? "반영된 정보"
+                                  : "이전 입력 정보"}
                             </button>
                             {m.snapshot !== snapshot &&
                               !Object.entries(m.reply.intake.patch).every(
@@ -2005,9 +2073,9 @@ function PlannerWorkspace({
                           question.trim() === submittedQuestion,
                         )
                       }
-                      disabled={busy || !submittedQuestion}
+                      disabled={busy || !submittedQuestion || retrySeconds > 0}
                     >
-                      다시 시도
+                      {retrySeconds > 0 ? `${retrySeconds}초 뒤 다시 시도` : "다시 시도"}
                     </button>
                   </div>
                 )}
@@ -2058,7 +2126,11 @@ function PlannerWorkspace({
                   }}
                 />
                 <div className="yp-composer-actions">
-                  <small>Enter 전송 · Shift+Enter 줄바꿈</small>
+                  <small>
+                    {retrySeconds > 0
+                      ? `${retrySeconds}초 뒤에 다시 보낼 수 있어요.`
+                      : "Enter 전송 · Shift+Enter 줄바꿈"}
+                  </small>
                   {busy ? (
                     <button
                       type="button"
@@ -2067,7 +2139,7 @@ function PlannerWorkspace({
                       분석 중단
                     </button>
                   ) : (
-                    <button className="yp-primary" disabled={!question.trim()}>
+                    <button className="yp-primary" disabled={!question.trim() || retrySeconds > 0}>
                       보내기 ↑
                     </button>
                   )}
@@ -2079,12 +2151,19 @@ function PlannerWorkspace({
                     <button onClick={() => goTo("manual")}>
                       직접 입력하기
                     </button>
-                    {result && (
-                      <button className="yp-primary" onClick={showResult}>
-                        내 결과 보기
-                      </button>
-                    )}
+                    <button className="yp-primary" onClick={() => applyIntake(true)}>
+                      내 결과 보기
+                    </button>
                   </div>
+                  {checkInput && (busy || !intakeComplete) && (
+                    <p className="yp-error" role="alert">
+                      {busy
+                        ? "답변을 정리하고 있어요. 정리가 끝나면 다시 눌러 주세요."
+                        : intakePrepared.missing.length
+                          ? `결과를 보려면 정보를 더 입력해 주세요. 필요한 항목: ${intakePrepared.missing.map((key) => inputLabels[key] || fieldNames[key] || key).join(", ")}.`
+                          : "결과를 보려면 입력한 날짜, 기간, 금액의 범위를 확인해 주세요."}
+                    </p>
+                  )}
                 </div>
               )}
             </section>

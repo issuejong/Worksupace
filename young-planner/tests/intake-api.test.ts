@@ -326,3 +326,36 @@ it("continues asking after a confirmation-only model reply and skips spouse ques
   expect(single.answer).toContain("현재 세후 월급");
   expect(single.answer).not.toContain("배우자");
 });
+
+it("accepts 20 requests, then returns the remaining cooldown without calling AI", async () => {
+  vi.stubEnv("GEMINI_API_KEY", "test-only");
+  vi.stubEnv("GEMINI_MODEL", "test");
+  vi.stubEnv("GROQ_API_KEY", "");
+  vi.stubEnv("AI_ACCESS_TOKEN", "");
+  create.mockResolvedValue({
+    choices: [{ message: { content: '{"answer":"확인했어요.","patch":{}}' } }],
+  });
+  const log = vi.spyOn(console, "info").mockImplementation(() => {});
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  const now = vi.spyOn(Date, "now").mockReturnValue(100_000);
+  const send = () => POST(new Request("http://local/api/agent", {
+    method: "POST",
+    headers: { "x-forwarded-for": "rate-limit-test" },
+    body: JSON.stringify({ operation: "collect", question: "확인", household: {}, solutions: none }),
+  }));
+  try {
+    for (let i = 0; i < 20; i++) expect((await send()).status).toBe(200);
+    now.mockReturnValue(112_500);
+    const blocked = await send();
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("Retry-After")).toBe("48");
+    expect((await blocked.json()).code).toBe("request_rate_limit");
+    expect(create).toHaveBeenCalledTimes(20);
+    now.mockReturnValue(160_000);
+    expect((await send()).status).toBe(200);
+  } finally {
+    now.mockRestore();
+    log.mockRestore();
+    error.mockRestore();
+  }
+});

@@ -159,18 +159,21 @@ export async function POST(req: Request) {
     const key = req.headers.get("x-forwarded-for")?.split(",")[0] || "local",
       now = Date.now(),
       prev = requests.get(key);
-    if (prev && now - prev.time < 60000 && prev.count >= 8)
+    const remaining = prev ? 60_000 - (now - prev.time) : 0;
+    if (prev && remaining > 0 && prev.count >= 20) {
+      const retryAfter = Math.ceil(remaining / 1000);
       return respond(
         {
-          error: "질문이 많아 잠시 쉬고 있어요. 1분 뒤 다시 시도해 주세요.",
+          error: "질문이 많아 잠시 쉬고 있어요. 대기 시간이 지나면 다시 보낼 수 있어요.",
           code: "request_rate_limit",
         },
-        { status: 429 },
+        { status: 429, headers: { "Retry-After": String(retryAfter) } },
       );
+    }
     if (requests.size > 2000) requests.clear();
     requests.set(key, {
-      time: prev && now - prev.time < 60000 ? prev.time : now,
-      count: prev && now - prev.time < 60000 ? prev.count + 1 : 1,
+      time: prev && remaining > 0 ? prev.time : now,
+      count: prev && remaining > 0 ? prev.count + 1 : 1,
     });
     const signal = AbortSignal.any([
       req.signal,

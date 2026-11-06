@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Household, Solutions, householdSchema } from "./household";
+import { Household, Solutions, householdSchema, solutionSchema } from "./household";
 export const draftSchema = z.object(householdSchema.shape).partial().strict();
 export const inputLabels: Partial<Record<keyof Household, string>> = {
   hasSpouse: "배우자 여부",
@@ -73,6 +73,26 @@ export function cleanDraft(h: Partial<Household>): Partial<Household> {
     ),
   );
 }
+export function readScenarioFile(value: unknown) {
+  const saved = z.object({
+    household: draftSchema,
+    solutions: solutionSchema,
+  }).parse(value);
+  return {
+    ...saved,
+    household: { ...blankHousehold(), ...saved.household },
+    fields: Object.keys(saved.household),
+  };
+}
+
+export function mergeIntake(h: Household, s: Solutions, patch: Partial<Household>) {
+  const household = { ...h, ...patch };
+  return {
+    household,
+    solutions: household.hasSpouse === false ? { ...s, catchup: false } : s,
+  };
+}
+
 export function prepareScenario(h: Household, s: Solutions) {
   const single = h.hasSpouse === false;
   const required: (keyof Household)[] = ["birth", "retire"];
@@ -240,14 +260,15 @@ export function intakeAnswer(
   invalid: string[],
   hasPending: boolean,
 ) {
-  const next = prepareScenario({ ...h, ...patch }, s);
+  const merged = mergeIntake(h, s, patch);
+  const next = prepareScenario(merged.household, merged.solutions);
   const first = next.missing[0];
   const followUp = first
     ? intakeQuestions[first] ||
       `다음으로 ${inputLabels[first] || first}을 알려주세요.`
     : next.household
       ? hasPending
-        ? "계산에 필요한 정보가 모였어요. 확인 카드에서 ‘정리한 정보 반영’을 누르면 결과를 볼 수 있어요."
+        ? "계산에 필요한 정보가 모였어요. ‘정보 반영하기 및 결과 보기’를 누르면 바로 결과를 볼 수 있어요."
         : "계산에 필요한 정보가 모였어요."
       : "입력한 날짜와 계산 기간을 확인해 주세요. 직접 입력 화면에서 수정할 수 있어요.";
   return [

@@ -4,6 +4,8 @@ import {
   cleanDraft,
   prepareScenario,
   draftSchema,
+  readScenarioFile,
+  mergeIntake,
 } from "../src/lib/input";
 import { example, adopted, none, calculate } from "../src/lib/household";
 it("starts without personal example values or a calculation", () => {
@@ -37,6 +39,25 @@ it("requires optional strategy data only when enabled", () => {
 it("does not require loan terms when the user reports no loan", () => {
   const h = { ...example, loan: 0, loanRate: NaN, loanMonths: NaN };
   expect(prepareScenario(h, none).household?.loanMonths).toBe(1);
+});
+
+it("loads a saved single-person scenario with omitted inactive inputs", () => {
+  const draft = { ...blankHousehold(), hasSpouse: false, birth: "1967-01",
+    retire: "2027-01", income: 350, assets: 6000, loan: 0,
+    living: 250, severance: 1000, pension: 150 };
+  const restored = readScenarioFile({ inputFormat: 2, household: cleanDraft(draft), solutions: none });
+  expect(restored.fields).not.toContain("jobIncome");
+  expect(restored.household.jobIncome).toBeNaN();
+  expect(prepareScenario(restored.household, restored.solutions).household)
+    .toEqual(prepareScenario(draft, none).household);
+});
+
+it("can complete the scenario directly from the final pending chat values", () => {
+  const h = { ...example, hasSpouse: undefined, spouseBirth: "", pension: NaN };
+  expect(prepareScenario(h, adopted).household).toBeNull();
+  const merged = mergeIntake(h, adopted, { hasSpouse: false, pension: 150 });
+  expect(merged.solutions.catchup).toBe(false);
+  expect(prepareScenario(merged.household, merged.solutions).household?.pension).toBe(150);
 });
 
 it("blocks plans that depend on missing income or costs", async () => {
