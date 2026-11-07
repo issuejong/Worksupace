@@ -1,5 +1,12 @@
 "use client";
-import { useEffect, useMemo, useRef, useState, useId, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useId,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
@@ -44,6 +51,7 @@ import {
   type Message,
   type Origin,
 } from "../lib/planner-session";
+import { money, moneyAxis } from "../lib/money";
 import "./planner.css";
 
 type FieldSpec = [keyof Household, string, string?];
@@ -53,7 +61,7 @@ const groups: { title: string; description: string; fields: FieldSpec[] }[] = [
     description: "지금 가진 돈과 매달 필요한 돈이에요.",
     fields: [
       ["living", "부부 월 생활비"],
-      ["assets", "현재 금융자산"],
+      ["assets", "지금 가진 예금·투자금"],
       ["house", "현재 주택가격"],
       ["loan", "주택담보대출 잔액"],
     ],
@@ -80,7 +88,7 @@ const groups: { title: string; description: string; fields: FieldSpec[] }[] = [
   {
     title: "국민연금 예상액",
     description:
-      "정상 수령 시 예상 월액이에요. 기준년 구매력으로 입력해 주세요.",
+      "국민연금공단에서 확인한 정상 수령 시의 월 예상액을 입력해 주세요. 미래가치가 아닌 현재가치 금액을 사용해요.",
     fields: [
       ["pension", "본인 월 연금"],
       ["spousePension", "배우자 월 연금"],
@@ -133,7 +141,9 @@ const showValue = (v: unknown, key?: string) =>
       ? "선택"
       : "미선택"
     : typeof v === "number"
-      ? `${fmt(v)}${key === "pensionOffset" || key === "homeMonth" ? "개월" : key === "homeYear" ? "년" : ""}`
+      ? key === "homeOverride"
+        ? money(v)
+        : `${fmt(v)}${key === "pensionOffset" || key === "homeMonth" ? "개월" : key === "homeYear" ? "년" : ""}`
       : String(v);
 function householdValue(value: unknown, key: string) {
   if (key === "hasSpouse" && typeof value === "boolean")
@@ -146,11 +156,62 @@ function householdValue(value: unknown, key: string) {
     "loanRate",
   ].includes(key);
   return typeof value === "number"
-    ? rate
-      ? `${fmt(value * 100)}%`
-      : `${fmt(value)}${["endYear", "shockYear"].includes(key) ? "년" : ["jobDelay", "benefitMonths", "loanMonths"].includes(key) ? "개월" : key === "reserveMonths" ? "개월치" : "만 원"}`
+    ? !rate &&
+      ![
+        "endYear",
+        "shockYear",
+        "jobDelay",
+        "benefitMonths",
+        "loanMonths",
+        "reserveMonths",
+      ].includes(key)
+      ? money(value)
+      : rate
+        ? `${fmt(value * 100)}%`
+        : `${fmt(value)}${["endYear", "shockYear"].includes(key) ? "년" : ["jobDelay", "benefitMonths", "loanMonths"].includes(key) ? "개월" : key === "reserveMonths" ? "개월치" : "만 원"}`
     : String(value);
 }
+const pensionHelp = (
+  <span className="yp-field-help">
+    얼마인지 모르겠다면{" "}
+    <a
+      href="https://www.nps.or.kr/comm/quick/getOHAH0011M0.do"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      국민연금 예상액 확인 (새 창)
+    </a>
+    에서 조회해 주세요. 본인 인증이 필요할 수 있어요.
+  </span>
+);
+const inputHelp: Partial<Record<keyof Household, ReactNode>> = {
+  pension: pensionHelp,
+  spousePension: pensionHelp,
+  assets: (
+    <span className="yp-field-help">
+      집값과 퇴직금을 제외한 예금·적금·투자금의 현재 잔액을 합쳐요.{" "}
+      <a
+        href="https://www.payinfo.or.kr/"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        내 계좌 확인 · 어카운트인포 (새 창)
+      </a>
+      와 이용 중인 금융사에서 확인해 주세요.
+    </span>
+  ),
+  loan: (
+    <span className="yp-field-help">
+      은행 앱이나 대출 내역에서 아직 갚지 않은 원금을 확인해요.
+    </span>
+  ),
+  severance: (
+    <span className="yp-field-help">
+      회사에서 안내받은 예상 퇴직금 중 세금을 뺀 금액이에요. 위 예금·투자금에는
+      중복해서 넣지 않아요.
+    </span>
+  ),
+};
 function save(name: string, text: string, type = "application/json") {
   const u = URL.createObjectURL(new Blob(["\ufeff" + text], { type }));
   const a = document.createElement("a");
@@ -165,8 +226,8 @@ function DetailSummary({ children }: { children: ReactNode }) {
     <summary className="yp-detail-summary">
       <span>{children}</span>
       <span className="yp-detail-action" aria-hidden="true">
-        <span className="yp-detail-open">＋ 열기</span>
-        <span className="yp-detail-close">− 닫기</span>
+        <span className="yp-detail-open">열기</span>
+        <span className="yp-detail-close">닫기</span>
       </span>
     </summary>
   );
@@ -181,6 +242,7 @@ function NumberField({
   error,
   hint,
   onBlur,
+  help,
 }: {
   label: string;
   value: number;
@@ -190,6 +252,7 @@ function NumberField({
   error?: string;
   hint?: string;
   onBlur?: () => void;
+  help?: ReactNode;
 }) {
   const errorId = useId();
   const display = Number.isFinite(value)
@@ -232,6 +295,10 @@ function NumberField({
         />
         <span>{unit}</span>
       </span>
+      {unit === "만 원" && Number.isFinite(value) && (
+        <small className="yp-note">{money(value)}</small>
+      )}
+      {help}
       {hint && <small className="yp-note">{hint}</small>}
       {error && (
         <small id={errorId} className="yp-error">
@@ -266,7 +333,7 @@ function Charts({
     <div
       className="yp-plot"
       role="img"
-      aria-label={`${which === "before" ? "계획 적용 전" : which === "after" ? "계획 적용 후" : "계획 적용 전후"} 금융자산 그래프. 최저 ${fmt((which === "before" ? before : after).minAssets)}만 원, 최초 부족 ${dateText((which === "before" ? before : after).firstNegative)}.`}
+      aria-label={`${which === "before" ? "계획 적용 전" : which === "after" ? "계획 적용 후" : "계획 적용 전후"} 금융자산 그래프. 최저 ${money((which === "before" ? before : after).minAssets)}, 최초 부족 ${dateText((which === "before" ? before : after).firstNegative)}.`}
     >
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
@@ -281,14 +348,14 @@ function Charts({
             axisLine={false}
           />
           <YAxis
-            width={64}
+            width={80}
             domain={[lo - padding, hi + padding]}
-            tickFormatter={(v) => fmt(Number(v))}
+            tickFormatter={(v) => moneyAxis(Number(v))}
             tickLine={false}
             axisLine={false}
           />
           <Tooltip
-            formatter={(v) => `${fmt(Number(v))}만 원`}
+            formatter={(v) => money(Number(v))}
             labelFormatter={(v) => `${v}년 말`}
             contentStyle={{ borderRadius: 12, borderColor: "#d8e2db" }}
           />
@@ -327,8 +394,8 @@ function Charts({
     <section className="yp-card">
       <div className="yp-section-heading">
         <div>
-          <h2>은퇴 후 금융자산 흐름</h2>
-          <p>연말 금융자산 · {year}년 구매력 · 만 원</p>
+          <h2>연도별 남는 돈</h2>
+          <p>연말 잔액 · {year}년 돈의 가치로 환산</p>
         </div>
         <button aria-pressed={separate} onClick={() => setSeparate(!separate)}>
           {separate ? "겹쳐 보기" : "나란히 보기"}
@@ -356,7 +423,7 @@ function Charts({
       )}
       <p className="yp-note">
         0 아래는 충당하지 못한 부족액이에요. 비상자금 기준은{" "}
-        {fmt(after.reserve)}만 원이에요.
+        {money(after.reserve)}이에요.
       </p>
     </section>
   );
@@ -367,15 +434,15 @@ function PlanningGuide() {
   const steps = [
     [
       "내 상황 알려주기",
-      "은퇴 시기, 생활비, 연금과 자산을 대화로 알려주거나 직접 입력해요.",
+      "은퇴 시기와 생활비, 연금과 자산을 대화하거나 직접 입력해요.",
     ],
     [
-      "생활비가 언제 부족한지 확인하기",
-      "은퇴 후 자산이 줄어드는 시점과 비상자금이 충분한지 확인해요.",
+      "생활비가 부족해지는 때 확인하기",
+      "자금이 부족해지는 시점과 비상자금이 충분한지 확인해요.",
     ],
     [
       "다른 준비 방법 비교하기",
-      "재취업이나 연금 수령 시기를 바꾸면 결과가 어떻게 달라지는지 살펴봐요.",
+      "재취업이나 연금 수령 시기를 바꿔 결과를 비교해요.",
     ],
   ] as const;
 
@@ -384,7 +451,6 @@ function PlanningGuide() {
       className="yp-card yp-planning-guide"
       aria-labelledby="yp-guide-title"
     >
-      <p className="yp-eyebrow">이용 순서</p>
       <h2 id="yp-guide-title">은퇴 계획, 이렇게 살펴봐요</h2>
       <ol>
         {steps.map(([title, description], index) => (
@@ -438,7 +504,9 @@ function PlannerWorkspace({
       isExample ? { ...example } : blankHousehold(),
     ),
     [s, setS] = useState<Solutions>(() =>
-      isExample ? { ...adopted } : { ...none, homeYear: new Date().getFullYear() },
+      isExample
+        ? { ...adopted }
+        : { ...none, homeYear: new Date().getFullYear() },
     );
   const revision = useRef(0);
   const [storageReady, setStorageReady] = useState(false);
@@ -529,7 +597,8 @@ function PlannerWorkspace({
   }, [isExample]);
   useEffect(() => {
     if (
-      isExample || !storageReady ||
+      isExample ||
+      !storageReady ||
       (!Object.keys(origins).length && !messages.length && !question)
     )
       return;
@@ -738,6 +807,7 @@ function PlannerWorkspace({
         precision={unit === "%" ? 4 : 1}
         onChange={(v) => update(key, unit === "%" ? v / 100 : v)}
         error={error}
+        help={inputHelp[key]}
         hint={origins[key] === "example" ? "예시에서 채운 값" : undefined}
       />
     );
@@ -938,7 +1008,7 @@ function PlannerWorkspace({
       after = calculate(example, adopted);
     save(
       "영플래너_검증대조.csv",
-      "지표,엑셀값,앱값,차이\n" +
+      "지표,기준값,계산값,차이\n" +
         [
           ["최초 부족월", "2031-02", before.firstNegative, "일치"],
           [
@@ -967,13 +1037,10 @@ function PlannerWorkspace({
   }
   const current = result?.after;
   const estimatedHomePayment = homePayment(h, s.homeYear, s.homeMonth) || 0;
-  const status = current?.firstNegative
-    ? "자금 부족 예상"
-    : current?.passes
-      ? "비상자금까지 유지"
-      : "비상자금 보완 필요";
   return (
-    <div className={`yp-app yp-flow yp-view-${activeView}`}>
+    <div
+      className={`yp-app yp-flow yp-view-${activeView} ${chatOpen && !inlineChat ? "yp-chat-visible" : ""}`}
+    >
       <a className="yp-skip" href="#yp-main">
         본문으로 건너뛰기
       </a>
@@ -991,19 +1058,18 @@ function PlannerWorkspace({
         {activeView === "home" ? (
           <section className="yp-landing">
             <div className="yp-landing-copy">
-              <p className="yp-eyebrow">은퇴 후 자산관리</p>
               <h1>
                 은퇴 후 생활비,
                 <br />
                 얼마나 오래 이어질까요?
               </h1>
               <p>
-                생활비와 연금, 보유 자산을 입력하고 은퇴 후 자금이 부족해지는
-                시점과 계획별 차이를 확인해 보세요.
+                생활비와 연금, 보유 자산으로 자금이 부족해지는 때를 확인해요. 내
+                상황에 맞는 은퇴 계획도 비교해 보세요.
               </p>
               <div className="yp-landing-actions">
                 <button className="yp-primary" onClick={() => goTo("chat")}>
-                  내 은퇴 계획 시작하기
+                  대화로 은퇴 계획 시작하기
                 </button>
                 <button onClick={() => router.push("/dashboard/example")}>
                   권 부장 부부 예시 보기
@@ -1022,26 +1088,25 @@ function PlannerWorkspace({
           </section>
         ) : (
           <section className="yp-intro">
-            {isExample && <p className="yp-eyebrow">권 부장 부부 예시</p>}
             <h1>
               {
                 {
-                  chat: "AI와 은퇴 준비 시작하기",
-                  manual: "은퇴 계획 직접 입력",
-                  result: "은퇴 후 자산 전망",
+                  chat: "은퇴 계획 상담",
+                  manual: "은퇴 계획 입력",
+                  result: isExample
+                    ? "권 부장 부부의 자금 전망"
+                    : "내 자금 전망",
                 }[activeView]
               }
             </h1>
             <p>
               {activeView === "chat"
-                ? "은퇴 시기와 생활비를 편하게 알려주세요. AI가 한 가지씩 물어볼게요."
+                ? "은퇴 시기와 생활비를 알려주세요. 필요한 정보를 하나씩 확인해요."
                 : activeView === "manual"
                   ? "예상 금액을 만 원 단위로 적어 주세요."
                   : !current
                     ? "계산에 필요한 계획 조건을 확인해 주세요."
-                    : current.firstNegative
-                      ? `${dateText(current.firstNegative)}부터 자금이 부족해져요.`
-                      : `계획을 적용하면 ${h.endYear}년까지 자금이 소진되지 않아요.`}
+                    : `분석 기간: ${h.start} ~ ${h.endYear}-12`}
             </p>
           </section>
         )}
@@ -1095,7 +1160,7 @@ function PlannerWorkspace({
             <div className="yp-section-heading">
               <div>
                 <p className="yp-eyebrow">
-                  가상의 보고서 사례 · {dateText(example.start)} 기준
+                  가상의 고객 사례 · {example.start} 기준
                 </p>
                 <h2 id="yp-example-title">
                   정년과 연금 사이, 생활비를 어떻게 마련할까요?
@@ -1118,15 +1183,12 @@ function PlannerWorkspace({
             </p>
             <dl>
               {[
+                ["부부 월소득", money(example.income + example.spouseIncome)],
+                ["월 생활비", money(example.living)],
+                ["예금·투자금", money(example.assets)],
                 [
-                  "부부 월소득",
-                  fmt(example.income + example.spouseIncome) + "만 원",
-                ],
-                ["월 생활비", fmt(example.living) + "만 원"],
-                ["금융자산", fmt(example.assets) + "만 원"],
-                [
-                  "주택가격 / 주담대",
-                  fmt(example.house) + " / " + fmt(example.loan) + "만 원",
+                  "집값 / 남은 주택대출",
+                  money(example.house) + " / " + money(example.loan),
                 ],
               ].map(([label, value]) => (
                 <div key={label}>
@@ -1136,8 +1198,8 @@ function PlannerWorkspace({
               ))}
             </dl>
             <p className="yp-note">
-              보고서의 기본 은퇴 계획이 적용되어 있어요. 이 화면에서 계획을
-              바꿔도 내 결과에는 반영되지 않아요.
+              예시의 기본 은퇴 계획이 적용되어 있어요. 이 화면에서 계획을 바꿔도
+              내 결과에는 반영되지 않아요.
             </p>
           </section>
         )}
@@ -1164,11 +1226,12 @@ function PlannerWorkspace({
               aria-labelledby="yp-settings-title"
             >
               <div className="yp-panel-heading">
-                <h2 id="yp-settings-title">은퇴 정보 입력</h2>
+                <h2 id="yp-settings-title">가구 정보</h2>
               </div>
               <div className="yp-settings-body">
                 <p className="yp-note">
-                  금액은 모두 만 원이에요. 바꾸면 결과에 바로 반영돼요.
+                  입력은 만 원 단위예요. 아래에 원 단위 금액도 함께 보여드려요.
+                  바꾸면 결과에 바로 반영돼요.
                 </p>
                 {groups.map((g, i) => (
                   <details
@@ -1178,35 +1241,37 @@ function PlannerWorkspace({
                   >
                     <DetailSummary>{g.title}</DetailSummary>
                     <p className="yp-note">{g.description}</p>
-                    {g.title === "나와 배우자" && (
-                      <label className="yp-field">
-                        <span>함께 계산할 배우자</span>
-                        <select
-                          value={
-                            h.hasSpouse === undefined
-                              ? h.spouseBirth
-                                ? "yes"
-                                : ""
-                              : h.hasSpouse
-                                ? "yes"
-                                : "no"
-                          }
-                          onChange={(e) =>
-                            update(
-                              "hasSpouse",
-                              e.target.value === ""
-                                ? undefined
-                                : e.target.value === "yes",
-                            )
-                          }
-                        >
-                          <option value="">선택해 주세요</option>
-                          <option value="yes">있어요</option>
-                          <option value="no">없어요</option>
-                        </select>
-                      </label>
-                    )}
-                    {g.fields.map(field)}
+                    <div className="yp-field-grid">
+                      {g.title === "나와 배우자" && (
+                        <label className="yp-field">
+                          <span>함께 계산할 배우자</span>
+                          <select
+                            value={
+                              h.hasSpouse === undefined
+                                ? h.spouseBirth
+                                  ? "yes"
+                                  : ""
+                                : h.hasSpouse
+                                  ? "yes"
+                                  : "no"
+                            }
+                            onChange={(e) =>
+                              update(
+                                "hasSpouse",
+                                e.target.value === ""
+                                  ? undefined
+                                  : e.target.value === "yes",
+                              )
+                            }
+                          >
+                            <option value="">선택해 주세요</option>
+                            <option value="yes">있어요</option>
+                            <option value="no">없어요</option>
+                          </select>
+                        </label>
+                      )}
+                      {g.fields.map(field)}
+                    </div>
                   </details>
                 ))}
                 {(s.job ||
@@ -1217,31 +1282,35 @@ function PlannerWorkspace({
                     <DetailSummary>은퇴 계획의 금액·기간 (선택)</DetailSummary>
                     <p className="yp-note">
                       선택한 구직급여, 재취업, 추납, 주택연금의 계산에 쓰이는
-                      정보예요. 비워두면 0원·0개월로 계산하고 결과는 볼 수 있어요.
+                      정보예요. 비워두면 0원·0개월로 계산하고 결과는 볼 수
+                      있어요.
                     </p>
-                    {(s.job
-                      ? ([
-                          ["jobIncome", "재취업 월급"],
-                          ["jobDelay", "재취업 대기 기간", "개월"],
-                        ] as FieldSpec[])
-                      : []
-                    ).map(field)}
-                    {(s.benefits
-                      ? ([
-                          ["benefit", "구직급여 월액"],
-                          ["benefitMonths", "구직급여 기간", "개월"],
-                        ] as FieldSpec[])
-                      : []
-                    ).map(field)}
-                    {(s.catchup && h.hasSpouse !== false
-                      ? ([
-                          ["catchupCost", "추납 비용"],
-                          ["catchupPension", "추납 후 배우자 월 연금"],
-                        ] as FieldSpec[])
-                      : []
-                    ).map(field)}
-                    {s.home && !s.homeOverride &&
-                      field(["house", "주택연금 계산에 사용할 집값"])}
+                    <div className="yp-field-grid">
+                      {(s.job
+                        ? ([
+                            ["jobIncome", "재취업 월급"],
+                            ["jobDelay", "재취업 대기 기간", "개월"],
+                          ] as FieldSpec[])
+                        : []
+                      ).map(field)}
+                      {(s.benefits
+                        ? ([
+                            ["benefit", "구직급여 월액"],
+                            ["benefitMonths", "구직급여 기간", "개월"],
+                          ] as FieldSpec[])
+                        : []
+                      ).map(field)}
+                      {(s.catchup && h.hasSpouse !== false
+                        ? ([
+                            ["catchupCost", "추납 비용"],
+                            ["catchupPension", "추납 후 배우자 월 연금"],
+                          ] as FieldSpec[])
+                        : []
+                      ).map(field)}
+                      {s.home &&
+                        !s.homeOverride &&
+                        field(["house", "주택연금 계산에 사용할 집값"])}
+                    </div>
                   </details>
                 )}
                 <details className="yp-input-group">
@@ -1250,7 +1319,9 @@ function PlannerWorkspace({
                     금액은 한 자리까지 표시해요. 예시의 정밀 계산값은 직접
                     수정하기 전까지 유지돼요.
                   </p>
-                  {assumptionFields.map(field)}
+                  <div className="yp-field-grid">
+                    {assumptionFields.map(field)}
+                  </div>
                 </details>
                 <details className="yp-input-group">
                   <DetailSummary>저장·불러오기</DetailSummary>
@@ -1349,6 +1420,45 @@ function PlannerWorkspace({
           )}
           {activeView === "result" && (
             <div id="yp-analysis" className="yp-analysis">
+              {current && result && (
+                <section
+                  className="yp-result-summary"
+                  aria-label="주요 계산 결과"
+                >
+                  <dl>
+                    <div
+                      className={
+                        current.firstNegative ? "yp-metric-warning" : ""
+                      }
+                    >
+                      <dt>자금 부족 시점</dt>
+                      <dd>{dateText(current.firstNegative)}</dd>
+                      <dd className="yp-metric-detail">
+                        계획 적용 전 {dateText(result.before.firstNegative)}
+                      </dd>
+                    </div>
+                    <div
+                      className={
+                        current.minAssets < 0 ? "yp-metric-warning" : ""
+                      }
+                    >
+                      <dt>가장 적게 남는 돈</dt>
+                      <dd>{money(current.minAssets)}</dd>
+                      <dd className="yp-metric-detail">
+                        {dateText(current.minMonth)} · {h.start.slice(0, 4)}년
+                        돈의 가치
+                      </dd>
+                    </div>
+                    <div className={!current.passes ? "yp-metric-warning" : ""}>
+                      <dt>비상시 쓸 돈</dt>
+                      <dd>{current.passes ? "충족" : "미달"}</dd>
+                      <dd className="yp-metric-detail">
+                        목표 {money(current.reserve)}
+                      </dd>
+                    </div>
+                  </dl>
+                </section>
+              )}
               <nav className="yp-tabs" aria-label="분석 내용 선택">
                 {(
                   [
@@ -1381,19 +1491,9 @@ function PlannerWorkspace({
                       aria-labelledby="yp-ending-balance"
                     >
                       <h2 id="yp-ending-balance">{h.endYear}년 말 예상 잔액</h2>
-                      <strong>
-                        {fmt(current.endAssets)}
-                        <small>만 원</small>
-                      </strong>
-                      <p className="yp-note">{h.endYear}년 명목금액</p>
-                      <hr />
-                      <h3>가장 적게 남는 때</h3>
-                      <p>
-                        {dateText(current.minMonth)} · {fmt(current.minAssets)}
-                        만 원
-                      </p>
+                      <strong>{money(current.endAssets)}</strong>
                       <p className="yp-note">
-                        {h.start.slice(0, 4)}년 구매력 · {status}
+                        {h.endYear}년에 통장에 표시될 금액
                       </p>
                       <button
                         className="yp-primary"
@@ -1407,7 +1507,7 @@ function PlannerWorkspace({
                           );
                         }}
                       >
-                        AI로 결과 살펴보기
+                        결과 설명 보기
                       </button>
                     </section>
                   </div>
@@ -1419,11 +1519,8 @@ function PlannerWorkspace({
                           같은 가구 정보를 기준으로 계획 적용 전후를 비교해요.
                         </p>
                       </div>
-                      <button onClick={() => setTab("plan")}>
-                        계획 바꾸기 →
-                      </button>
                     </div>
-                    <div className="yp-scroll">
+                    <div className="yp-scroll yp-comparison-scroll">
                       <table className="yp-result-comparison">
                         <caption className="yp-sr">
                           은퇴 계획 적용 전후 비교
@@ -1437,57 +1534,111 @@ function PlannerWorkspace({
                         </thead>
                         <tbody>
                           <tr>
-                            <th scope="row">돈이 처음 부족한 때</th>
-                            <td>{dateText(result.before.firstNegative)}</td>
-                            <td>{dateText(current.firstNegative)}</td>
+                            <th scope="row">
+                              돈이 처음 부족한 때
+                              <small>잔액이 0원 아래로 내려가는 달</small>
+                            </th>
+                            <td data-label="계획 적용 전">
+                              {dateText(result.before.firstNegative)}
+                            </td>
+                            <td data-label="계획 적용 후">
+                              {dateText(current.firstNegative)}
+                            </td>
                           </tr>
                           <tr>
-                            <th scope="row">최저 금융자산</th>
-                            <td>{fmt(result.before.minAssets)}만 원</td>
-                            <td>{fmt(current.minAssets)}만 원</td>
+                            <th scope="row">
+                              가장 적게 남는 돈
+                              <small>전체 기간 중 잔액이 가장 낮은 달</small>
+                            </th>
+                            <td data-label="계획 적용 전">
+                              {money(result.before.minAssets)}
+                            </td>
+                            <td data-label="계획 적용 후">
+                              {money(current.minAssets)}
+                            </td>
                           </tr>
                           <tr>
-                            <th scope="row">평생 수지 합계</th>
-                            <td>{fmt(result.before.lifeNet)}만 원</td>
-                            <td>{fmt(current.lifeNet)}만 원</td>
+                            <th scope="row">
+                              전체 기간의 수입·지출 차이
+                              <small>
+                                {h.start.slice(0, 4)}~{h.endYear}년 · 시작할 때
+                                가진 돈 포함
+                              </small>
+                            </th>
+                            <td data-label="계획 적용 전">
+                              {money(result.before.lifeNet)}
+                            </td>
+                            <td data-label="계획 적용 후">
+                              {money(current.lifeNet)}
+                            </td>
                           </tr>
                           <tr>
-                            <th scope="row">비상자금 유지</th>
-                            <td>{result.before.passes ? "충족" : "미달"}</td>
-                            <td>{current.passes ? "충족" : "미달"}</td>
+                            <th scope="row">
+                              비상시 쓸 돈
+                              <small>목표 금액을 끝까지 유지하는지</small>
+                            </th>
+                            <td data-label="계획 적용 전">
+                              {result.before.passes ? "충족" : "미달"}
+                            </td>
+                            <td data-label="계획 적용 후">
+                              {current.passes ? "충족" : "미달"}
+                            </td>
                           </tr>
                         </tbody>
                       </table>
                     </div>
                     <p className="yp-note">
-                      최저 자산과 평생 수지는 {h.start.slice(0, 4)}년
-                      구매력이에요. 평생 수지는 시작 자산을 포함하고 운용수익은
-                      제외한 수입·지출 합계예요.
+                      금액은 {h.start.slice(0, 4)}년 돈의 가치로 환산했어요.
+                      ‘전체 기간의 수입·지출 차이’는 시작할 때 가진 돈에 전체
+                      수입을 더하고 지출을 뺀 금액이에요. 예금 이자·투자 수익은
+                      제외하므로 마지막 통장 잔액과는 달라요. 음수는 그만큼
+                      부족하다는 뜻이에요.
                     </p>
                     <p className="yp-note">
-                      비상자금 목표 {fmt(current.reserve)}만 원 · 본인 정년부터
+                      비상자금 목표 {money(current.reserve)} · 본인 정년부터
                       정상 연금까지 {current.gapMonths}개월 · 가구에 근로·연금
                       소득이 없는 기간 {current.householdGap}개월
                     </p>
-                    <div className="yp-plan-summary">
+                    <ul
+                      className="yp-plan-status"
+                      aria-label="준비 방법 적용 상태"
+                    >
                       {(
                         ["benefits", "job", "repay", "catchup", "home"] as const
-                      ).map((k) => (
-                        <span key={k} className={s[k] ? "selected" : ""}>
-                          {s[k] ? "✓" : "−"} {planLabels[k]}
-                        </span>
+                      ).map((key) => (
+                        <li key={key} data-applied={s[key]}>
+                          <span className="yp-status-check" aria-hidden="true">
+                            {s[key] ? "✓" : "−"}
+                          </span>
+                          <span>{planLabels[key]}</span>
+                          <strong>{s[key] ? "적용" : "미적용"}</strong>
+                        </li>
                       ))}
-                    </div>
+                    </ul>
                     <p className="yp-note">
-                      계획 적용 전에는 위 다섯 방법을 적용하지 않아요. 연 수익률도
-                      계획 적용 전 {fmt(h.beforeReturn * 100)}% / 계획 적용 후{" "}
-                      {fmt(h.planReturn * 100)}%로 달라 결과에 함께 반영돼요.
+                      계획 적용 전에는 위 다섯 방법을 적용하지 않아요. 연
+                      수익률도 계획 적용 전 {fmt(h.beforeReturn * 100)}% / 계획
+                      적용 후 {fmt(h.planReturn * 100)}%로 달라 결과에 함께
+                      반영돼요.
                     </p>
                     {prepared.optionalMissing.length > 0 && (
                       <p className="yp-note">
-                        선택한 계획 중 입력하지 않은 금액과 기간은 0원·0개월로 계산했어요.
+                        선택한 계획 중 입력하지 않은 금액과 기간은 0원·0개월로
+                        계산했어요.
                       </p>
                     )}
+                    <p className="yp-note">
+                      화면의 금액은 원 단위로 반올림해요. 계산과 저장에는 원래
+                      정밀도를 유지해요.
+                    </p>
+                    <div className="yp-comparison-actions">
+                      <button
+                        className="yp-primary"
+                        onClick={() => setTab("plan")}
+                      >
+                        계획 바꾸기
+                      </button>
+                    </div>
                   </section>
                 </div>
               )}
@@ -1495,39 +1646,39 @@ function PlannerWorkspace({
                 <section id="yp-plan" className="yp-card">
                   <div className="yp-section-heading">
                     <div>
-                      <h2>우리에게 맞는 준비 방법을 골라요</h2>
+                      <h2>적용할 준비 방법</h2>
                       <p>
                         체크하면 바로 계산돼요. 자세한 금액은 항목을 펼쳐 바꿀
                         수 있어요.
                       </p>
                     </div>
-                  </div>
-                  <div className="yp-plan-actions">
-                    <button
-                      onClick={() => {
-                        setS({ ...none });
-                        setApplied("");
-                        setUndo(null);
-                      }}
-                    >
-                      모두 선택 해제
-                    </button>
-                    <button
-                      onClick={() => {
-                        setS({ ...adopted });
-                        setApplied("");
-                        setUndo(null);
-                        setNotice(
-                          "가구 정보는 유지하고 보고서 기본 계획만 적용했어요.",
-                        );
-                      }}
-                    >
-                      보고서 기본 계획 적용
-                    </button>
+                    <div className="yp-plan-actions">
+                      <button
+                        onClick={() => {
+                          setS({ ...none });
+                          setApplied("");
+                          setUndo(null);
+                        }}
+                      >
+                        모두 선택 해제
+                      </button>
+                      <button
+                        onClick={() => {
+                          setS({ ...adopted });
+                          setApplied("");
+                          setUndo(null);
+                          setNotice(
+                            "가구 정보는 유지하고 예시 기본 계획만 적용했어요.",
+                          );
+                        }}
+                      >
+                        예시 기본 계획 적용
+                      </button>
+                    </div>
                   </div>
                   <p className="yp-note">
-                    보고서 기본 계획(S4)은 아래 다섯 방법과 정상 연금 수령을
-                    함께 쓰는 안이에요.{" "}
+                    예시 기본 계획은 아래 다섯 방법과 정상 연금 수령을 함께 쓰는
+                    안이에요.{" "}
                     {changes.length
                       ? `현재 ${changes.length}개 계획 조건이 달라요.`
                       : "현재 같은 계획을 선택했어요."}
@@ -1564,7 +1715,9 @@ function PlannerWorkspace({
                             ["jobIncome", "재취업 월급"],
                             [
                               "jobDelay",
-                              s.benefits ? "구직급여 종료 후 추가 대기" : "은퇴 후 추가 대기",
+                              s.benefits
+                                ? "구직급여 종료 후 추가 대기"
+                                : "은퇴 후 추가 대기",
                               "개월",
                             ],
                           ],
@@ -1624,13 +1777,15 @@ function PlannerWorkspace({
                           {s[key] && (
                             <details className="yp-plan-detail">
                               <DetailSummary>
-                                {key === "repay" ? "상환 방식" : "금액·기간 조절"}
+                                {key === "repay"
+                                  ? "상환 방식"
+                                  : "금액·기간 조절"}
                               </DetailSummary>
                               {fields.map(field)}
                               {key === "repay" && (
                                 <p>
                                   은퇴 다음 달에 대출 잔액을 전액 상환해요. 현재
-                                  대출 잔액은 {fmt(h.loan)}만 원이에요.
+                                  대출 잔액은 {money(h.loan)}이에요.
                                 </p>
                               )}
                               {key === "home" && (
@@ -1669,8 +1824,11 @@ function PlannerWorkspace({
                                   </label>
                                   <p className="yp-note">
                                     {s.homeYear}년 {s.homeMonth}월부터 월{" "}
-                                    {fmt(s.homeOverride || estimatedHomePayment)}만 원 추정 · 실제
-                                    지급액은 한국주택금융공사에서 확인해 주세요.
+                                    {money(
+                                      s.homeOverride || estimatedHomePayment,
+                                    )}{" "}
+                                    추정 · 실제 지급액은 한국주택금융공사에서
+                                    확인해 주세요.
                                   </p>
                                   <label className="yp-checkbox">
                                     <input
@@ -1680,7 +1838,13 @@ function PlannerWorkspace({
                                         setHomeOverrideError("");
                                         setPlan({
                                           homeOverride: e.target.checked
-                                            ? Math.min(500, Math.max(0.1, estimatedHomePayment))
+                                            ? Math.min(
+                                                500,
+                                                Math.max(
+                                                  0.1,
+                                                  estimatedHomePayment,
+                                                ),
+                                              )
                                             : 0,
                                         });
                                       }}
@@ -1695,8 +1859,14 @@ function PlannerWorkspace({
                                       error={homeOverrideError}
                                       onBlur={() => setHomeOverrideError("")}
                                       onChange={(v) => {
-                                        if (!Number.isFinite(v) || v <= 0 || v > 500) {
-                                          setHomeOverrideError("0보다 크고 500만 원 이하인 금액을 입력해 주세요. 그전 금액으로 계산 중이에요.");
+                                        if (
+                                          !Number.isFinite(v) ||
+                                          v <= 0 ||
+                                          v > 500
+                                        ) {
+                                          setHomeOverrideError(
+                                            "0보다 크고 500만 원 이하인 금액을 입력해 주세요. 그전 금액으로 계산 중이에요.",
+                                          );
                                           return;
                                         }
                                         setHomeOverrideError("");
@@ -1750,7 +1920,7 @@ function PlannerWorkspace({
                   )}
                   {current?.warnings.map((w) => (
                     <p className="yp-warning" role="status" key={w}>
-                      △ {w}
+                      주의 · {w}
                     </p>
                   ))}
                   <div className="yp-actions">
@@ -1759,13 +1929,15 @@ function PlannerWorkspace({
                       disabled={!result}
                       onClick={() => setTab("result")}
                     >
-                      결과 비교하기 →
+                      결과 비교하기
                     </button>
                     {!isExample && (
-                      <button onClick={() => goTo("chat")}>채팅으로 계획 조건 입력</button>
+                      <button onClick={() => goTo("chat")}>
+                        채팅으로 계획 조건 입력
+                      </button>
                     )}
                     <button disabled={!result} onClick={() => openChat()}>
-                      AI와 다른 계획 비교하기
+                      다른 계획 상담하기
                     </button>
                   </div>
                 </section>
@@ -1773,17 +1945,33 @@ function PlannerWorkspace({
               {tab === "basis" && current && (
                 <section id="yp-basis" className="yp-card yp-stack">
                   <div>
-                    <h2>계산은 이렇게 했어요</h2>
-                    <p>
-                      분석 기간 {h.start} ~ {h.endYear}-12 · 매월 계산해요.
-                    </p>
-                    <p>
-                      물가 연 {fmt(h.inflation * 100)}% · 수익률 계획 적용 전{" "}
-                      {fmt(h.beforeReturn * 100)}% / 계획 적용 후{" "}
-                      {fmt(h.planReturn * 100)}% · 세후 금액 기준이에요.
-                    </p>
+                    <h2>계산 기준</h2>
+                    <dl className="yp-assumptions">
+                      <div>
+                        <dt>분석 기간</dt>
+                        <dd>
+                          {h.start} ~ {h.endYear}-12 · 월별 계산
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>물가 상승률</dt>
+                        <dd>연 {fmt(h.inflation * 100)}%</dd>
+                      </div>
+                      <div>
+                        <dt>수익률 · 적용 전</dt>
+                        <dd>연 {fmt(h.beforeReturn * 100)}%</dd>
+                      </div>
+                      <div>
+                        <dt>수익률 · 적용 후</dt>
+                        <dd>연 {fmt(h.planReturn * 100)}%</dd>
+                      </div>
+                      <div>
+                        <dt>수입 기준</dt>
+                        <dd>세후 금액</dd>
+                      </div>
+                    </dl>
                     <button onClick={() => goTo(isExample ? "chat" : "manual")}>
-                      {isExample ? "내 정보 입력하기 →" : "계산 가정 수정하기 →"}
+                      {isExample ? "내 정보 입력하기" : "계산 가정 수정하기"}
                     </button>
                   </div>
                   <div>
@@ -1807,7 +1995,8 @@ function PlannerWorkspace({
                   <details>
                     <DetailSummary>월별 수입·지출 상세</DetailSummary>
                     <p className="yp-note">
-                      모든 금액은 만 원 · 수입에는 운용수익이 포함돼요.
+                      금액은 원 단위로 반올림해요. 수입에는 예금 이자·투자
+                      수익이 포함돼요.
                     </p>
                     <div className="yp-scroll">
                       <table>
@@ -1818,7 +2007,7 @@ function PlannerWorkspace({
                               "수입",
                               "지출",
                               "금융자산",
-                              "기준년 구매력",
+                              "시작 연도 돈의 가치",
                             ].map((k) => (
                               <th key={k}>{k}</th>
                             ))}
@@ -1834,7 +2023,7 @@ function PlannerWorkspace({
                                 r.assets,
                                 r.realAssets,
                               ].map((v, i) => (
-                                <td key={i}>{fmt(v)}</td>
+                                <td key={i}>{money(v)}</td>
                               ))}
                             </tr>
                           ))}
@@ -1843,26 +2032,25 @@ function PlannerWorkspace({
                     </div>
                   </details>
                   <details>
-                    <DetailSummary>내 결과와 보고서 자료 저장</DetailSummary>
+                    <DetailSummary>계산 결과 저장</DetailSummary>
                     <div className="yp-actions">
                       <button onClick={csv}>월별 계산 CSV</button>
                       <button onClick={verification}>
-                        보고서 예시 대조표 CSV
+                        예시 계산 대조표 CSV
                       </button>
                       <button onClick={() => window.print()}>
                         화면 인쇄·PDF
                       </button>
                     </div>
                     <p className="yp-note">
-                      대조표는 내 입력과 무관하게 보고서 예시를 검증해요. 계산
-                      정밀도 확인을 위해 내려받는 CSV와 조건 파일은 원래 숫자
-                      정밀도를 유지해요.
+                      예시 계산 대조표는 예시 가구의 기준값과 계산 결과를 비교한
+                      자료예요. CSV와 조건 파일에는 반올림 전 금액이 저장돼요.
                     </p>
                   </details>
                   <p className="yp-note">
-                    기준 자료: 작업 엑셀 v1.1 · 본문 v11. 주택연금 표
-                    보간·건강보험·추납 산식은 보고서 가정이며 실제 제도와 다를
-                    수 있어요.
+                    주택연금 월액과 건강보험료, 연금 추납 효과는 입력한 조건을
+                    바탕으로 추정해요. 실제 가입 조건과 지급액은 담당 기관에서
+                    확인해 주세요.
                   </p>
                 </section>
               )}
@@ -1878,7 +2066,13 @@ function PlannerWorkspace({
               }}
             >
               <div className="yp-panel-heading">
-                <h2 id="yp-agent-title">AI 은퇴 상담</h2>
+                <h2
+                  id="yp-agent-title"
+                  className={inlineChat ? "yp-sr" : undefined}
+                >
+                  {inlineChat ? "상담 내용" : "은퇴 상담"}
+                </h2>
+                <span className="yp-chat-disclosure">AI 상담</span>
                 {!inlineChat && (
                   <button
                     type="button"
@@ -1896,8 +2090,18 @@ function PlannerWorkspace({
                 aria-live="polite"
                 aria-busy={busy}
               >
+                {collecting && (
+                  <details className="yp-input-sources">
+                    <DetailSummary>입력할 금액을 모르겠다면</DetailSummary>
+                    <p>{pensionHelp}</p>
+                    <p>{inputHelp.assets}</p>
+                    <p className="yp-note">
+                      금액을 확인한 뒤 이 대화에 알려주세요. 링크는 새 창으로
+                      열려요.
+                    </p>
+                  </details>
+                )}
                 <div className="yp-agent-message yp-greeting">
-                  <strong>AI 은퇴 상담</strong>
                   <p>
                     {collecting
                       ? "안녕하세요. 몇 년 몇 월에 은퇴할 예정이세요?"
@@ -1955,7 +2159,8 @@ function PlannerWorkspace({
                                 : Object.entries(m.reply.intake.patch).every(
                                       ([k, v]) =>
                                         h[k as keyof Household] === v &&
-                                        origins[k as keyof Household] === "chat",
+                                        origins[k as keyof Household] ===
+                                          "chat",
                                     )
                                   ? "반영된 정보"
                                   : "이전 입력 정보"}
@@ -1972,7 +2177,7 @@ function PlannerWorkspace({
                           </div>
                         )}
 
-                      <strong>AI 은퇴 상담</strong>
+                      <strong className="yp-sr">상담 답변</strong>
                       {!m.reply.intake &&
                         m.snapshot !== snapshot &&
                         !m.reply.candidates.some(
@@ -2029,15 +2234,17 @@ function PlannerWorkspace({
                               </div>
                               <div>
                                 <dt>최저 잔고</dt>
-                                <dd>{fmt(c.metrics.minAssets)}만 원</dd>
+                                <dd>{money(c.metrics.minAssets)}</dd>
                               </div>
                               <div>
                                 <dt>마지막 자산</dt>
-                                <dd>{fmt(c.metrics.endAssets)}만 원</dd>
+                                <dd>{money(c.metrics.endAssets)}</dd>
                               </div>
                             </dl>
                             <details>
-                              <DetailSummary>변경 조건 {diff.length}개</DetailSummary>
+                              <DetailSummary>
+                                변경 조건 {diff.length}개
+                              </DetailSummary>
                               <ul>
                                 {diff.map((d) => (
                                   <li key={d}>{d}</li>
@@ -2078,10 +2285,10 @@ function PlannerWorkspace({
                     </p>
                     <p className="yp-thinking" role="status">
                       {waitingSeconds >= 6
-                        ? "✦ AI 연결이 지연되고 있어요. 잠시만 기다려 주세요…"
+                        ? "연결이 지연되고 있어요. 잠시만 기다려 주세요."
                         : !collecting
-                          ? "✦ 조건을 확인하고 필요한 계산을 진행하고 있어요…"
-                          : "✦ 알려주신 정보를 정리하고 있어요…"}
+                          ? "조건을 확인하고 계산하고 있어요."
+                          : "입력한 정보를 정리하고 있어요."}
                     </p>
                   </>
                 )}
@@ -2109,7 +2316,9 @@ function PlannerWorkspace({
                       }
                       disabled={busy || !submittedQuestion || retrySeconds > 0}
                     >
-                      {retrySeconds > 0 ? `${retrySeconds}초 뒤 다시 시도` : "다시 시도"}
+                      {retrySeconds > 0
+                        ? `${retrySeconds}초 뒤 다시 시도`
+                        : "다시 시도"}
                     </button>
                   </div>
                 )}
@@ -2117,11 +2326,9 @@ function PlannerWorkspace({
               {undo && (
                 <div className="yp-undo" role="status">
                   <span>
-                    ✓ {applied ? `${applied} 적용 완료` : "입력 정보 반영 완료"}
+                    {applied ? `${applied} 적용 완료` : "입력 정보 반영 완료"}
                   </span>
-                  <button onClick={restoreInput}>
-                    되돌리기
-                  </button>
+                  <button onClick={restoreInput}>되돌리기</button>
                 </div>
               )}
               <form
@@ -2173,8 +2380,11 @@ function PlannerWorkspace({
                       분석 중단
                     </button>
                   ) : (
-                    <button className="yp-primary" disabled={!question.trim() || retrySeconds > 0}>
-                      보내기 ↑
+                    <button
+                      className="yp-primary"
+                      disabled={!question.trim() || retrySeconds > 0}
+                    >
+                      보내기
                     </button>
                   )}
                 </div>
@@ -2185,7 +2395,10 @@ function PlannerWorkspace({
                     <button onClick={() => goTo("manual")}>
                       직접 입력하기
                     </button>
-                    <button className="yp-primary" onClick={() => applyIntake(true)}>
+                    <button
+                      className="yp-primary"
+                      onClick={() => applyIntake(true)}
+                    >
                       내 결과 보기
                     </button>
                   </div>
@@ -2224,9 +2437,9 @@ function PlannerWorkspace({
           <br />
           실제 수급 자격·지급액·세금은 관련 기관에서 확인해 주세요.
           {!isExample && activeView !== "home" && (
-            <div>
+            <div className="yp-footer-actions">
               <button
-                className="yp-text-button"
+                className="yp-reset-button"
                 onClick={() => resetDialog.current?.showModal()}
                 disabled={!storageReady}
               >
@@ -2257,9 +2470,8 @@ function PlannerWorkspace({
             strokeLinejoin="round"
             aria-hidden="true"
           >
-            <rect x="4" y="7" width="16" height="13" rx="4" />
-            <path d="M12 7V4m-2.5 12h5M2 12v3m20-3v3" />
-            <path d="M9 12h.01m6 0h.01" strokeWidth="2.8" />
+            <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3V11.5A7.5 7.5 0 0 1 9.5 4h3a7.5 7.5 0 0 1 7.5 7.5Z" />
+            <path d="M7 10h8M7 14h5" />
           </svg>
         </button>
       )}

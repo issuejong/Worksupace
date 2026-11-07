@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
 export const metadata: Metadata = {
-  title: "Afterfolio | 은퇴 후 자산관리",
-  description: "은퇴자금 시나리오 비교와 AI 분석",
+  title: "Afterfolio",
+  description: "생활비와 연금, 보유 자산을 입력하고 은퇴 계획별 자금 전망을 비교하세요.",
 };
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
