@@ -45,7 +45,8 @@ import {
   optionalPlanHint,
   isSkippableMoneyField,
   nextIntakeField,
-  resolveIntakeSkip,
+  resolveIntakeInputAction,
+  inputLookups,
   skippableMoneyFields,
 } from "../lib/input";
 import type { Candidate } from "../lib/household-agent";
@@ -175,47 +176,23 @@ function householdValue(value: unknown, key: string) {
         : `${fmt(value)}${["endYear", "shockYear"].includes(key) ? "년" : ["jobDelay", "benefitMonths", "loanMonths"].includes(key) ? "개월" : key === "reserveMonths" ? "개월치" : "만 원"}`
     : String(value);
 }
-const pensionHelp = (
-  <span className="yp-field-help">
-    얼마인지 모르겠다면{" "}
-    <a
-      href="https://www.nps.or.kr/comm/quick/getOHAH0011M0.do"
-      target="_blank"
-      rel="noopener noreferrer"
-    >
-      국민연금 예상액 확인 (새 창)
-    </a>
-    에서 조회해 주세요. 본인 인증이 필요할 수 있어요.
-  </span>
-);
-const inputHelp: Partial<Record<keyof Household, ReactNode>> = {
-  pension: pensionHelp,
-  spousePension: pensionHelp,
-  assets: (
+function LookupHelp({ field }: { field: keyof Household }) {
+  const lookup = inputLookups[field];
+  if (!lookup) return null;
+  return (
     <span className="yp-field-help">
-      집값과 퇴직금을 제외한 예금·적금·투자금의 현재 잔액을 합쳐요.{" "}
-      <a
-        href="https://www.payinfo.or.kr/"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        내 계좌 확인 · 어카운트인포 (새 창)
-      </a>
-      와 이용 중인 금융사에서 확인해 주세요.
+      {lookup.description}
+      {lookup.link && (
+        <>
+          {" "}
+          <a href={lookup.link.href} target="_blank" rel="noopener noreferrer">
+            {lookup.link.label} (새 창)
+          </a>
+        </>
+      )}
     </span>
-  ),
-  loan: (
-    <span className="yp-field-help">
-      은행 앱이나 대출 내역에서 아직 갚지 않은 원금을 확인해요.
-    </span>
-  ),
-  severance: (
-    <span className="yp-field-help">
-      회사에서 안내받은 예상 퇴직금 중 세금을 뺀 금액이에요. 위 예금·투자금에는
-      중복해서 넣지 않아요.
-    </span>
-  ),
-};
+  );
+}
 function save(name: string, text: string, type = "application/json") {
   const u = URL.createObjectURL(new Blob(["\ufeff" + text], { type }));
   const a = document.createElement("a");
@@ -241,8 +218,12 @@ function InputSources() {
   return (
     <details className="yp-input-sources">
       <DetailSummary>입력할 금액을 모르겠다면</DetailSummary>
-      <p>{pensionHelp}</p>
-      <p>{inputHelp.assets}</p>
+      <p>
+        <LookupHelp field="pension" />
+      </p>
+      <p>
+        <LookupHelp field="assets" />
+      </p>
     </details>
   );
 }
@@ -882,7 +863,9 @@ function PlannerWorkspace({
         precision={unit === "%" ? 4 : 1}
         onChange={(v) => update(key, unit === "%" ? v / 100 : v)}
         error={error}
-        help={inputHelp[key]}
+        help={
+          isSkippableMoneyField(key) ? <LookupHelp field={key} /> : undefined
+        }
         onSkip={
           isSkippableMoneyField(key)
             ? () => update(key, 0, "skipped")
@@ -938,11 +921,12 @@ function PlannerWorkspace({
   }
   async function ask(prompt = question, clearDraft = true, explain = false) {
     const q = prompt.trim();
-    const skipping =
+    const inputAction =
       collecting &&
       !explain &&
-      resolveIntakeSkip(q, intake.household, intake.solutions);
-    if (!q || sending.current || (!skipping && retryUntil > Date.now())) return;
+      resolveIntakeInputAction(q, intake.household, intake.solutions);
+    if (!q || sending.current || (!inputAction && retryUntil > Date.now()))
+      return;
     sending.current = true;
     submittedExplanation.current = explain;
     setSubmittedQuestion(q);
@@ -2316,7 +2300,18 @@ function PlannerWorkspace({
                           </p>
                         )}
                       <div className="yp-markdown">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            a: ({ node: _node, ...props }) => (
+                              <a
+                                {...props}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              />
+                            ),
+                          }}
+                        >
                           {m.reply.answer}
                         </ReactMarkdown>
                       </div>
@@ -2523,7 +2518,7 @@ function PlannerWorkspace({
                         (retrySeconds > 0 &&
                           !(
                             collecting &&
-                            resolveIntakeSkip(
+                            resolveIntakeInputAction(
                               question,
                               intake.household,
                               intake.solutions,

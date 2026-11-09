@@ -14,7 +14,7 @@ import {
   prepareScenario,
   inputLabels,
   intakeAnswer,
-  resolveIntakeSkip,
+  resolveIntakeInputAction,
 } from "../../../lib/input";
 import { runHouseholdAgent } from "../../../lib/household-agent";
 import { retirementExplanation } from "../../../lib/result-explanation";
@@ -138,9 +138,9 @@ export async function POST(req: Request) {
     if (parsed.data.operation === "collect") {
       const { question, household, solutions, pendingIntake } = parsed.data;
       const h = { ...blankHousehold(), ...household };
-      const skip = resolveIntakeSkip(question, h, solutions);
-      if (skip) {
-        const { patch, skipped, notice } = skip;
+      const action = resolveIntakeInputAction(question, h, solutions);
+      if (action) {
+        const { patch, skipped, notice } = action;
         return respond({
           answer: `${notice}\n\n${intakeAnswer(h, solutions, patch, [], skipped.length > 0 || pendingIntake)}`,
           intake: { patch, skipped },
@@ -297,7 +297,7 @@ export async function POST(req: Request) {
         messages: [
           {
             role: "system",
-            content: `한국어 은퇴 준비 입력 상담. 오늘 한국 날짜 ${new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" })}. JSON으로 답한다. answer는 짧은 상담과 다음 질문이다. 별도의 출력 형식 안내가 없으면 patch는 확인된 필드와 값의 객체다. 허용 필드 ${JSON.stringify(Object.keys(draftSchema.shape))}, 이름 ${JSON.stringify(inputLabels)}. 현재 입력 ${JSON.stringify(input.household)}. 최신 사용자 발언에 명시된 정보만 patch에 넣는다. 금액은 만원, 비율은 소수, 날짜는 YYYY-MM. 사용자 개인정보나 누락값을 추정하거나 보고서 예시값을 채우지 않는다. 금액·세전/세후·배우자·월/연·합계 포함 여부·월이 모호하면 먼저 물어보고 해당 값을 patch에 넣지 않는다. 모르는 금액의 건너뛰기는 앱이 별도로 처리한다. 혼합 답변에서는 확인된 항목만 추출하고, 미확인 항목은 추측하거나 0으로 채우지 않는다. 추가 질문은 한번에 1~2개만 한다. 추출한 값은 사용자의 반영 버튼으로만 적용된다. 배우자가 없거나 독신이라고 명시하면 hasSpouse에 false를 넣고 배우자 정보는 추출하지 않는다. 대출이 없다고 명시하면 loan에 0을 넣는다. 짧은 답변은 직전 질문이 요청한 항목을 기준으로 해석한다. 앱이 다음 질문을 정하므로 answer에는 짧은 확인만 쓴다. 계산과 자격 판정은 하지 않는다.`,
+            content: `한국어 은퇴 준비 입력 상담. 오늘 한국 날짜 ${new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" })}. JSON으로 답한다. answer는 짧은 상담과 다음 질문이다. 별도의 출력 형식 안내가 없으면 patch는 확인된 필드와 값의 객체다. 허용 필드 ${JSON.stringify(Object.keys(draftSchema.shape))}, 이름 ${JSON.stringify(inputLabels)}. 현재 입력 ${JSON.stringify(input.household)}. 최신 사용자 발언에 명시된 정보만 patch에 넣는다. 금액은 만원, 비율은 소수, 날짜는 YYYY-MM. 사용자 개인정보나 누락값을 추정하거나 보고서 예시값을 채우지 않는다. 금액·세전/세후·배우자·월/연·합계 포함 여부·월이 모호하면 먼저 물어보고 해당 값을 patch에 넣지 않는다. 모르는 금액은 앱에서 확인처를 안내한다. 혼합 답변에서는 확인된 항목만 추출하고, 미확인 항목은 추측하거나 0으로 채우지 않는다. 추가 질문은 한번에 1~2개만 한다. 추출한 값은 사용자의 반영 버튼으로만 적용된다. 배우자가 없거나 독신이라고 명시하면 hasSpouse에 false를 넣고 배우자 정보는 추출하지 않는다. 대출이 없다고 명시하면 loan에 0을 넣는다. 짧은 답변은 직전 질문이 요청한 항목을 기준으로 해석한다. 앱이 다음 질문을 정하므로 answer에는 짧은 확인만 쓴다. 계산과 자격 판정은 하지 않는다.`,
           },
           ...input.history,
           { role: "user", content: input.question },

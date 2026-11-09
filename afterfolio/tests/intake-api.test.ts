@@ -395,7 +395,7 @@ it("accepts 20 requests, then returns the remaining cooldown without calling AI"
   }
 });
 
-it("uses zero for an unknown amount without a model and proceeds to the next question", async () => {
+it("uses zero for an explicit skip without a model and proceeds to the next question", async () => {
   for (const key of [
     "GEMINI_API_KEY",
     "GROQ_API_KEY",
@@ -408,7 +408,7 @@ it("uses zero for an unknown amount without a model and proceeds to the next que
       method: "POST",
       body: JSON.stringify({
         operation: "collect",
-        question: "잘 모르겠어요",
+        question: "건너뛰기",
         household: {
           birth: "1970-01",
           retire: "2029-01",
@@ -429,7 +429,7 @@ it("uses zero for an unknown amount without a model and proceeds to the next que
   expect(create).not.toHaveBeenCalled();
 });
 
-it("skips only the named missing amount and keeps required dates and known values", async () => {
+it("provides official lookup guidance for unknown amounts and only skips when requested", async () => {
   vi.stubEnv("AI_ACCESS_TOKEN", "");
   const collect = async (
     question: string,
@@ -449,14 +449,26 @@ it("skips only the named missing amount and keeps required dates and known value
     expect(response.status).toBe(200);
     return response.json();
   };
-  expect((await collect("국민연금은 아직 몰라요", {})).intake.patch).toEqual({
+  const unknownPension = await collect("국민연금은 아직 몰라요", {});
+  expect(unknownPension.intake.patch).toEqual({});
+  expect(unknownPension.answer).toContain("https://www.nps.or.kr/");
+  const household = {
+    birth: "1970-01",
+    retire: "2029-01",
+    hasSpouse: false,
+    income: 400,
+  };
+  const unknownAssets = await collect("잘 모르겠어요", household);
+  expect(unknownAssets.intake.patch).toEqual({});
+  expect(unknownAssets.answer).toContain("https://www.payinfo.or.kr/");
+  expect((await collect("국민연금 건너뛰기", {})).intake.patch).toEqual({
     pension: 0,
   });
   const unknownDate = await collect("모름", {});
   expect(unknownDate.intake.patch).toEqual({});
   expect(unknownDate.answer).toContain("출생연월");
   expect(
-    (await collect("국민연금은 모르겠어요", { pension: 150 })).intake.patch,
+    (await collect("국민연금 건너뛰기", { pension: 150 })).intake.patch,
   ).toEqual({});
   expect(create).not.toHaveBeenCalled();
 });

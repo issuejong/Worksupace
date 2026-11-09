@@ -180,8 +180,105 @@ export function nextIntakeField(h: Household, s: Solutions) {
   return missing[0] ?? optionalMissing.find(isSkippableMoneyField);
 }
 
+type InputLookup = {
+  description: string;
+  link?: { label: string; href: string };
+};
+const pensionLookup: InputLookup = {
+  description:
+    "국민연금공단에서 본인 인증 후 정상 수령 시의 월 예상액을 확인해 주세요. ‘현재가치’ 기준 금액을 사용해요.",
+  link: {
+    label: "국민연금공단 예상연금액 조회",
+    href: "https://www.nps.or.kr/comm/quick/getOHAH0011M0.do",
+  },
+};
+const loanLookup: InputLookup = {
+  description:
+    "대출받은 금융사 앱이나 대출 상환 명세에서 남은 원금, 금리와 상환 기간을 확인할 수 있어요.",
+};
+const catchupLookup: InputLookup = {
+  description:
+    "국민연금공단(1355)에 추납 비용과 추납 후 예상 연금액을 문의해 주세요.",
+  link: {
+    label: "국민연금공단 추후납부 안내",
+    href: "https://www.nps.or.kr/pnsinfo/ntpsklg/getOHAF0047M0.do?menuId=MN24001116",
+  },
+};
+export const inputLookups: Partial<Record<keyof Household, InputLookup>> = {
+  birth: { description: "신분증에 적힌 생년월일의 연도와 월을 확인해 주세요." },
+  spouseBirth: { description: "배우자에게 태어난 연도와 월을 확인해 주세요." },
+  retire: {
+    description:
+      "회사 인사팀에 확인하거나, 예상하는 은퇴 연도와 월을 알려주세요.",
+  },
+  spouseEnd: {
+    description:
+      "배우자에게 일을 그만둘 것으로 예상하는 연도와 월을 확인해 주세요.",
+  },
+  hasSpouse: {
+    description: "이 계산에 배우자의 소득과 지출을 함께 넣을지 알려주세요.",
+  },
+  pension: pensionLookup,
+  spousePension: pensionLookup,
+  assets: {
+    description:
+      "집값과 아직 받지 않은 퇴직금을 빼고, 금융사 앱에서 예금·적금·투자 잔액을 확인해 합산해 주세요.",
+    link: {
+      label: "금융결제원 어카운트인포",
+      href: "https://www.payinfo.or.kr/",
+    },
+  },
+  house: {
+    description:
+      "비슷한 면적과 조건의 최근 거래를 참고해 예상 집값을 입력해 주세요.",
+    link: {
+      label: "국토교통부 실거래가 조회",
+      href: "https://rt.molit.go.kr/pt/qut/qut.do",
+    },
+  },
+  income: {
+    description:
+      "최근 급여명세서의 실수령액이나 급여가 입금된 통장 내역을 확인해 주세요.",
+  },
+  spouseIncome: {
+    description:
+      "배우자의 급여명세서나 급여 입금 내역에서 세후 월급을 확인해 주세요.",
+  },
+  living: {
+    description:
+      "최근 카드 명세서와 계좌 지출 내역을 보고 평소 한 달 생활비를 합산해 주세요.",
+  },
+  loan: loanLookup,
+  loanRate: loanLookup,
+  loanMonths: loanLookup,
+  severance: {
+    description:
+      "회사 인사팀에 예상 세후 퇴직금을 확인해 주세요. 고용노동부 계산기는 예상 퇴직금의 참고값을 구할 때 쓸 수 있어요.",
+    link: {
+      label: "고용노동부 퇴직금 계산기",
+      href: "https://1350.moel.go.kr/home/hp/retirementpaycal/retirementpaycal.jsp",
+    },
+  },
+  jobIncome: {
+    description:
+      "재취업할 곳의 채용 공고나 근로계약서에서 예상 월급을 확인해 주세요. 이 앱에는 세후 월급을 입력해요.",
+  },
+  benefit: {
+    description:
+      "고용24에서 근로자 유형을 선택해 예상 구직급여를 확인할 수 있어요.",
+    link: {
+      label: "고용24 실업급여 모의계산",
+      href: "https://www.work24.go.kr/cm/c/f/1100/selecSimulate.do?systClId=SC00000254&systCnntId=CI00002358&systId=SI00000411&upprSystClId=SC00000253",
+    },
+  },
+  catchupCost: catchupLookup,
+  catchupPension: catchupLookup,
+};
+
 const unknownAmount =
-  /^(?:(?:아직|잘|정확히|정확하게|금액을|얼마인지)*모(?:름|르겠(?:어|어요|습니다|는데요)|르겠음|릅니다)|(?:아직|잘|정확히|금액을|얼마인지)*몰라(?:요|서요)?|(?:아직)?알수없(?:어요|습니다)|(?:아직)?확인(?:을)?못했(?:어요|습니다)|기억(?:이)?안(?:나요|납니다)|건너뛰(?:기|어줘|어주세요|겠습니다|게요)|건너뛸게요|패스(?:할게요)?)$/;
+  /^(?:(?:아직|잘|정확히|정확하게|금액을|얼마인지)*모(?:름|르겠(?:어|어요|습니다|는데요)|르겠음|릅니다)|(?:아직|잘|정확히|금액을|얼마인지)*몰라(?:요|서요)?|(?:아직)?알수없(?:어요|습니다)|(?:아직)?확인(?:을)?못했(?:어요|습니다)|기억(?:이)?안(?:나요|납니다)|어디서확인(?:하나요|해요|할수있나요)|확인(?:하는)?(?:방법|사이트)(?:를)?알려(?:줘|주세요))$/;
+const skipRequest =
+  /^(?:건너뛰(?:기|어줘|어주세요|겠습니다|게요)|건너뛸게요|패스(?:할게요)?)$/;
 
 const amountNames: [SkippableMoneyField, RegExp][] = [
   [
@@ -202,7 +299,7 @@ const amountNames: [SkippableMoneyField, RegExp][] = [
   ["severance", /^(?:예상)?(?:세후)?퇴직금/],
 ];
 
-export function resolveIntakeSkip(
+export function resolveIntakeInputAction(
   question: string,
   h: Household,
   s: Solutions,
@@ -211,34 +308,39 @@ export function resolveIntakeSkip(
     .trim()
     .replace(/[.!?。]+$/, "")
     .replace(/\s+/g, "");
+  let reply = text;
+  let target: keyof Household | undefined;
   const next = nextIntakeField(h, s);
-  let target = next;
-  if (!unknownAmount.test(text)) {
-    const named = amountNames.find(([, name]) => {
+  if (unknownAmount.test(text) || skipRequest.test(text)) {
+    target = next;
+  } else {
+    for (const [field, name] of amountNames) {
       const match = name.exec(text);
-      return (
-        match &&
-        unknownAmount.test(
-          text.slice(match[0].length).replace(/^(?:은|는|을|를|이|가)/, ""),
-        )
-      );
-    });
-    if (!named) return null;
-    target = named[0];
-    if (
-      target === "pension" &&
-      next === "spousePension" &&
-      !/^(?:본인|내)/.test(text)
-    )
-      target = next;
-    if (
-      target === "income" &&
-      next === "spouseIncome" &&
-      !/^(?:본인|내)/.test(text)
-    )
-      target = next;
+      if (!match) continue;
+      reply = text.slice(match[0].length).replace(/^(?:은|는|을|를|이|가)/, "");
+      if (unknownAmount.test(reply) || skipRequest.test(reply)) {
+        target = field;
+        break;
+      }
+    }
+    if (!target) return null;
+    if (!/^(?:본인|내)/.test(text)) {
+      if (target === "pension" && next === "spousePension") target = next;
+      if (target === "income" && next === "spouseIncome") target = next;
+    }
   }
   const patch: Partial<Household> = {};
+  if (unknownAmount.test(reply)) {
+    const lookup = target ? inputLookups[target] : undefined;
+    const link = lookup?.link;
+    return {
+      patch,
+      skipped: [],
+      notice: lookup
+        ? `${lookup.description}${link ? `\n\n[${link.label}](${link.href})` : ""}${isSkippableMoneyField(target) ? `\n\n확인한 금액을 알려주세요. 나중에 확인하고 싶다면 ‘${inputLabels[target]} 건너뛰기’라고 말해 주세요.` : ""}`
+        : "확인하고 싶은 항목을 알려주세요.",
+    };
+  }
   if (
     isSkippableMoneyField(target) &&
     !(
