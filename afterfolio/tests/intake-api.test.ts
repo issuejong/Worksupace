@@ -343,7 +343,7 @@ it("continues asking after a confirmation-only model reply and skips spouse ques
     expect(response.status).toBe(200);
     return response.json();
   };
-  const birth = await send("1970 02", {});
+  const birth = await send("1970년 2월에 태어났어요", {});
   expect(birth.answer).toContain("은퇴 예정월은 언제인가요?");
   const single = await send("결혼 안함", {
     ...birth.intake.patch,
@@ -466,9 +466,54 @@ it("provides official lookup guidance for unknown amounts and only skips when re
   });
   const unknownDate = await collect("모름", {});
   expect(unknownDate.intake.patch).toEqual({});
-  expect(unknownDate.answer).toContain("출생연월");
+  expect(unknownDate.answer).toContain("은퇴 예정월");
   expect(
     (await collect("국민연금 건너뛰기", { pension: 150 })).intake.patch,
   ).toEqual({});
+  expect(create).not.toHaveBeenCalled();
+});
+
+it("keeps the first retirement answer and moves from birth to spouse status", async () => {
+  for (const key of [
+    "GEMINI_API_KEY",
+    "GROQ_API_KEY",
+    "OPENAI_API_KEY",
+    "AI_ACCESS_TOKEN",
+  ])
+    vi.stubEnv(key, "");
+  const send = async (
+    question: string,
+    household: Record<string, unknown> = {},
+    previousReply?: string,
+  ) => {
+    const response = await POST(
+      new Request("http://local/api/agent", {
+        method: "POST",
+        body: JSON.stringify({
+          operation: "collect",
+          question,
+          household,
+          solutions: none,
+          history: previousReply
+            ? [{ role: "assistant", content: previousReply }]
+            : [],
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    return response.json();
+  };
+  const first = await send("28년 2월");
+  expect(first.intake.patch).toEqual({ retire: "2028-02" });
+  expect(first.answer).toContain("본인 출생연월은 언제인가요?");
+  const second = await send("65년 9월", first.intake.patch, first.answer);
+  expect(second.intake.patch).toEqual({ birth: "1965-09" });
+  expect(second.answer).toContain("함께 계산할 배우자가 있나요?");
+  expect(second.answer).not.toContain("은퇴 예정월은 언제인가요?");
+  const legacy = await send("65년 9월", {}, first.answer);
+  expect(legacy.intake.patch).toEqual({ birth: "1965-09" });
+  const invalid = await send("65년 13월", first.intake.patch, first.answer);
+  expect(invalid.intake.patch).toEqual({});
+  expect(invalid.answer).toContain("본인 출생연월은 언제인가요?");
   expect(create).not.toHaveBeenCalled();
 });

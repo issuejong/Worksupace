@@ -175,9 +175,16 @@ export function isSkippableMoneyField(
   return skippableMoneyFields.some((field) => field === key);
 }
 
+function firstIntakeQuestionField(missing: (keyof Household)[]) {
+  return missing.includes("retire") ? "retire" : missing[0];
+}
+
 export function nextIntakeField(h: Household, s: Solutions) {
   const { missing, optionalMissing } = prepareScenario(h, s);
-  return missing[0] ?? optionalMissing.find(isSkippableMoneyField);
+  return (
+    firstIntakeQuestionField(missing) ??
+    optionalMissing.find(isSkippableMoneyField)
+  );
 }
 
 type InputLookup = {
@@ -493,6 +500,62 @@ const intakeQuestions: Partial<Record<keyof Household, string>> = {
   loanMonths: "대출 상환 기간이 몇 개월 남았나요?",
 };
 
+export function intakeQuestion(field: keyof Household) {
+  return (
+    intakeQuestions[field] ??
+    `다음으로 ${inputLabels[field] || field}을 알려주세요.`
+  );
+}
+
+const intakeDateFields = [
+  "retire",
+  "birth",
+  "spouseBirth",
+  "spouseEnd",
+] as const;
+
+export function resolveIntakeDate(
+  question: string,
+  h: Household,
+  s: Solutions,
+  previousReply?: string,
+) {
+  const text = question.trim().replace(/[.!?。]+$/, "");
+  const date = /^(\d{2}|\d{4})(?:\s*년\s*|[-./]|\s+)(\d{1,2})\s*월?$/.exec(
+    text,
+  );
+  if (!date) return null;
+
+  const { missing } = prepareScenario(h, s);
+  const previousQuestion = intakeDateFields.find(
+    (key) =>
+      missing.includes(key) &&
+      previousReply?.split("\n").includes(intakeQuestion(key)),
+  );
+  const field = previousQuestion ?? firstIntakeQuestionField(missing);
+  if (
+    field !== "retire" &&
+    field !== "birth" &&
+    field !== "spouseBirth" &&
+    field !== "spouseEnd"
+  )
+    return null;
+
+  const [, yearText, monthText] = date;
+  const isBirth = field === "birth" || field === "spouseBirth";
+  const startYear = Number(h.start.slice(0, 4));
+  let year = Number(yearText);
+  if (yearText.length === 2) {
+    const reference = isBirth ? startYear : startYear + 49;
+    year += Math.floor((reference - year) / 100) * 100;
+  }
+  const value = `${year}-${monthText.padStart(2, "0")}`;
+  const valid =
+    householdSchema.shape[field].safeParse(value).success &&
+    (!isBirth || value < h.start);
+  return { field, value: valid ? value : null };
+}
+
 export function intakeAnswer(
   h: Household,
   s: Solutions,
@@ -502,10 +565,9 @@ export function intakeAnswer(
 ) {
   const merged = mergeIntake(h, s, patch);
   const next = prepareScenario(merged.household, merged.solutions);
-  const first = next.missing[0];
+  const first = firstIntakeQuestionField(next.missing);
   const followUp = first
-    ? intakeQuestions[first] ||
-      `다음으로 ${inputLabels[first] || first}을 알려주세요.`
+    ? intakeQuestion(first)
     : next.household
       ? hasPending
         ? "계산에 필요한 정보가 모였어요. ‘정보 반영하기 및 결과 보기’를 누르면 바로 결과를 볼 수 있어요."

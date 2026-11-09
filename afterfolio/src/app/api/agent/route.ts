@@ -14,6 +14,8 @@ import {
   prepareScenario,
   inputLabels,
   intakeAnswer,
+  intakeQuestion,
+  resolveIntakeDate,
   resolveIntakeInputAction,
 } from "../../../lib/input";
 import { runHouseholdAgent } from "../../../lib/household-agent";
@@ -138,6 +140,25 @@ export async function POST(req: Request) {
     if (parsed.data.operation === "collect") {
       const { question, household, solutions, pendingIntake } = parsed.data;
       const h = { ...blankHousehold(), ...household };
+      const lastTurn = parsed.data.history.at(-1);
+      const date = resolveIntakeDate(
+        question,
+        h,
+        solutions,
+        lastTurn?.role === "assistant" ? lastTurn.content : undefined,
+      );
+      if (date) {
+        const patch = date.value ? { [date.field]: date.value } : {};
+        return respond({
+          answer: date.value
+            ? intakeAnswer(h, solutions, patch, [], true)
+            : `연도와 월을 다시 확인해 주세요. ${intakeQuestion(date.field)}`,
+          intake: { patch },
+          candidates: [],
+          tools: ["collect"],
+          searched: 0,
+        });
+      }
       const action = resolveIntakeInputAction(question, h, solutions);
       if (action) {
         const { patch, skipped, notice } = action;

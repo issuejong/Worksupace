@@ -45,6 +45,7 @@ import {
   optionalPlanHint,
   isSkippableMoneyField,
   nextIntakeField,
+  intakeAnswer,
   resolveIntakeInputAction,
   inputLookups,
   skippableMoneyFields,
@@ -2203,13 +2204,21 @@ function PlannerWorkspace({
                 aria-live="polite"
                 aria-busy={busy}
               >
-                <div className="yp-agent-message yp-greeting">
-                  <p>
-                    {collecting
-                      ? "몇 년 몇 월에 은퇴할 예정이세요?"
-                      : "생활비가 부족해지는 이유나 준비 방법을 바꾸면 달라지는 점을 물어보세요."}
-                  </p>
-                </div>
+                {(!collecting || conversation.length === 0) && (
+                  <div className="yp-agent-message yp-greeting">
+                    <p>
+                      {collecting
+                        ? intakeAnswer(
+                            intake.household,
+                            intake.solutions,
+                            {},
+                            [],
+                            false,
+                          )
+                        : "생활비가 부족해지는 이유나 준비 방법을 바꾸면 달라지는 점을 물어보세요."}
+                    </p>
+                  </div>
+                )}
                 {collecting && !inlineChat && <InputSources />}
                 {conversation.map((m, i) => (
                   <article className="yp-exchange" key={i}>
