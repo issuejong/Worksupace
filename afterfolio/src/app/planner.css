@@ -2775,3 +2775,39 @@ details[open] > .yp-detail-summary .yp-detail-action {
     color: black;
   }
 }
+
+.yp-field-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-height: 44px;
+  font-size: 18px;
+}
+.yp-flow button.yp-skip-amount {
+  min-height: 44px;
+  padding: 6px 8px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent);
+  font-size: 16px;
+}
+.yp-flow .yp-composer-actions {
+  flex-wrap: wrap;
+}
+.yp-flow .yp-composer-actions > .yp-primary {
+  margin-inline-start: auto;
+}
+.yp-skipped-notice {
+  margin-bottom: 16px !important;
+  padding: 12px 16px;
+  border-inline-start: 3px solid var(--accent);
+  background: var(--flow-quiet);
+  color: var(--muted);
+  font-size: 16px;
+}
+.yp-skipped-notice strong {
+  display: block;
+  color: var(--ink);
+}

@@ -14,6 +14,7 @@ import {
   prepareScenario,
   inputLabels,
   intakeAnswer,
+  resolveIntakeSkip,
 } from "../../../lib/input";
 import { runHouseholdAgent } from "../../../lib/household-agent";
 import { retirementExplanation } from "../../../lib/result-explanation";
@@ -125,6 +126,30 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     context.operation = parsed.data.operation;
+    if (
+      process.env.AI_ACCESS_TOKEN &&
+      req.headers.get("authorization") !==
+        `Bearer ${process.env.AI_ACCESS_TOKEN}`
+    )
+      return respond(
+        { error: "AI 접근 토큰을 확인해 주세요.", code: "unauthorized" },
+        { status: 401 },
+      );
+    if (parsed.data.operation === "collect") {
+      const { question, household, solutions, pendingIntake } = parsed.data;
+      const h = { ...blankHousehold(), ...household };
+      const skip = resolveIntakeSkip(question, h, solutions);
+      if (skip) {
+        const { patch, skipped, notice } = skip;
+        return respond({
+          answer: `${notice}\n\n${intakeAnswer(h, solutions, patch, [], skipped.length > 0 || pendingIntake)}`,
+          intake: { patch, skipped },
+          candidates: [],
+          tools: ["collect"],
+          searched: 0,
+        });
+      }
+    }
     const gemini =
         Boolean(process.env.GEMINI_API_KEY) &&
         (!process.env.GROQ_API_KEY || parsed.data.operation !== "collect"),
@@ -148,15 +173,6 @@ export async function POST(req: Request) {
         },
         { status: 503 },
       );
-    if (
-      process.env.AI_ACCESS_TOKEN &&
-      req.headers.get("authorization") !==
-        `Bearer ${process.env.AI_ACCESS_TOKEN}`
-    )
-      return respond(
-        { error: "AI 접근 토큰을 확인해 주세요.", code: "unauthorized" },
-        { status: 401 },
-      );
     const key = req.headers.get("x-forwarded-for")?.split(",")[0] || "local",
       now = Date.now(),
       prev = requests.get(key);
@@ -165,7 +181,8 @@ export async function POST(req: Request) {
       const retryAfter = Math.ceil(remaining / 1000);
       return respond(
         {
-          error: "질문이 많아 잠시 쉬고 있어요. 대기 시간이 지나면 다시 보낼 수 있어요.",
+          error:
+            "질문이 많아 잠시 쉬고 있어요. 대기 시간이 지나면 다시 보낼 수 있어요.",
           code: "request_rate_limit",
         },
         { status: 429, headers: { "Retry-After": String(retryAfter) } },
@@ -280,7 +297,7 @@ export async function POST(req: Request) {
         messages: [
           {
             role: "system",
-            content: `한국어 은퇴 준비 입력 상담. 오늘 한국 날짜 ${new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" })}. JSON으로 답한다. answer는 짧은 상담과 다음 질문이다. 별도의 출력 형식 안내가 없으면 patch는 확인된 필드와 값의 객체다. 허용 필드 ${JSON.stringify(Object.keys(draftSchema.shape))}, 이름 ${JSON.stringify(inputLabels)}. 현재 입력 ${JSON.stringify(input.household)}. 최신 사용자 발언에 명시된 정보만 patch에 넣는다. 금액은 만원, 비율은 소수, 날짜는 YYYY-MM. 사용자 개인정보나 누락값을 추정하거나 보고서 예시값을 채우지 않는다. 금액·세전/세후·배우자·월/연·합계 포함 여부·월이 모호하면 먼저 물어보고 해당 값을 patch에 넣지 않는다. 모름은 0이 아니다. 미확인 항목은 추측하지 말고 patch에서 생략한다. 추가 질문은 한번에 1~2개만 한다. 추출한 값은 사용자의 반영 버튼으로만 적용된다. 배우자가 없거나 독신이라고 명시하면 hasSpouse에 false를 넣고 배우자 정보는 추출하지 않는다. 대출이 없다고 명시하면 loan에 0을 넣는다. 짧은 답변은 직전 질문이 요청한 항목을 기준으로 해석한다. 앱이 다음 질문을 정하므로 answer에는 짧은 확인만 쓴다. 계산과 자격 판정은 하지 않는다.`,
+            content: `한국어 은퇴 준비 입력 상담. 오늘 한국 날짜 ${new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" })}. JSON으로 답한다. answer는 짧은 상담과 다음 질문이다. 별도의 출력 형식 안내가 없으면 patch는 확인된 필드와 값의 객체다. 허용 필드 ${JSON.stringify(Object.keys(draftSchema.shape))}, 이름 ${JSON.stringify(inputLabels)}. 현재 입력 ${JSON.stringify(input.household)}. 최신 사용자 발언에 명시된 정보만 patch에 넣는다. 금액은 만원, 비율은 소수, 날짜는 YYYY-MM. 사용자 개인정보나 누락값을 추정하거나 보고서 예시값을 채우지 않는다. 금액·세전/세후·배우자·월/연·합계 포함 여부·월이 모호하면 먼저 물어보고 해당 값을 patch에 넣지 않는다. 모르는 금액의 건너뛰기는 앱이 별도로 처리한다. 혼합 답변에서는 확인된 항목만 추출하고, 미확인 항목은 추측하거나 0으로 채우지 않는다. 추가 질문은 한번에 1~2개만 한다. 추출한 값은 사용자의 반영 버튼으로만 적용된다. 배우자가 없거나 독신이라고 명시하면 hasSpouse에 false를 넣고 배우자 정보는 추출하지 않는다. 대출이 없다고 명시하면 loan에 0을 넣는다. 짧은 답변은 직전 질문이 요청한 항목을 기준으로 해석한다. 앱이 다음 질문을 정하므로 answer에는 짧은 확인만 쓴다. 계산과 자격 판정은 하지 않는다.`,
           },
           ...input.history,
           { role: "user", content: input.question },
@@ -345,20 +362,25 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     if (input.operation === "explain") {
-      const { facts, takeaways } = retirementExplanation(ready, input.solutions);
+      const { facts, takeaways } = retirementExplanation(
+        ready,
+        input.solutions,
+      );
       const response = await router.complete({
         model,
         max_tokens: 128,
         messages: [
           {
             role: "system",
-            content: "은퇴 전망을 처음 보는 사람에게 먼저 보여줄 요점을 고르세요. 자금 부족은 shortfall, 비상자금은 reserve, 기말 잔액은 balance입니다. shortfall, reserve, balance 중 하나만 출력하세요.",
+            content:
+              "은퇴 전망을 처음 보는 사람에게 먼저 보여줄 요점을 고르세요. 자금 부족은 shortfall, 비상자금은 reserve, 기말 잔액은 balance입니다. shortfall, reserve, balance 중 하나만 출력하세요.",
           },
           { role: "user", content: `${facts}\n${JSON.stringify(takeaways)}` },
         ],
       });
       const focus = response.choices[0]?.message.content?.trim().toLowerCase();
-      const selected = focus === "reserve" || focus === "balance" ? focus : "shortfall";
+      const selected =
+        focus === "reserve" || focus === "balance" ? focus : "shortfall";
       return respond({
         answer: `${takeaways[selected]}\n\n${facts}\n\n‘부족’은 시뮬레이션에서 충당하지 못한 생활자금이에요.`,
         candidates: [],

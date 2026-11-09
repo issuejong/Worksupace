@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { Household, Solutions, householdSchema, solutionSchema } from "./household";
+import {
+  Household,
+  Solutions,
+  householdSchema,
+  solutionSchema,
+} from "./household";
 export const draftSchema = z.object(householdSchema.shape).partial().strict();
 export const inputLabels: Partial<Record<keyof Household, string>> = {
   hasSpouse: "배우자 여부",
@@ -74,10 +79,12 @@ export function cleanDraft(h: Partial<Household>): Partial<Household> {
   );
 }
 export function readScenarioFile(value: unknown) {
-  const saved = z.object({
-    household: draftSchema,
-    solutions: solutionSchema,
-  }).parse(value);
+  const saved = z
+    .object({
+      household: draftSchema,
+      solutions: solutionSchema,
+    })
+    .parse(value);
   return {
     ...saved,
     household: { ...blankHousehold(), ...saved.household },
@@ -85,7 +92,11 @@ export function readScenarioFile(value: unknown) {
   };
 }
 
-export function mergeIntake(h: Household, s: Solutions, patch: Partial<Household>) {
+export function mergeIntake(
+  h: Household,
+  s: Solutions,
+  patch: Partial<Household>,
+) {
   const household = { ...h, ...patch };
   return {
     household,
@@ -134,7 +145,123 @@ export function prepareScenario(h: Household, s: Solutions) {
         : 0,
   };
   const parsed = householdSchema.safeParse(normalized);
-  return { missing, optionalMissing, household: parsed.success ? parsed.data : null };
+  return {
+    missing,
+    optionalMissing,
+    household: parsed.success ? parsed.data : null,
+  };
+}
+
+export const skippableMoneyFields = [
+  "income",
+  "spouseIncome",
+  "assets",
+  "house",
+  "loan",
+  "living",
+  "severance",
+  "pension",
+  "spousePension",
+  "jobIncome",
+  "benefit",
+  "catchupCost",
+  "catchupPension",
+] as const satisfies readonly (keyof Household)[];
+export type SkippableMoneyField = (typeof skippableMoneyFields)[number];
+
+export function isSkippableMoneyField(
+  key: keyof Household | undefined,
+): key is SkippableMoneyField {
+  return skippableMoneyFields.some((field) => field === key);
+}
+
+export function nextIntakeField(h: Household, s: Solutions) {
+  const { missing, optionalMissing } = prepareScenario(h, s);
+  return missing[0] ?? optionalMissing.find(isSkippableMoneyField);
+}
+
+const unknownAmount =
+  /^(?:(?:아직|잘|정확히|정확하게|금액을|얼마인지)*모(?:름|르겠(?:어|어요|습니다|는데요)|르겠음|릅니다)|(?:아직|잘|정확히|금액을|얼마인지)*몰라(?:요|서요)?|(?:아직)?알수없(?:어요|습니다)|(?:아직)?확인(?:을)?못했(?:어요|습니다)|기억(?:이)?안(?:나요|납니다)|건너뛰(?:기|어줘|어주세요|겠습니다|게요)|건너뛸게요|패스(?:할게요)?)$/;
+
+const amountNames: [SkippableMoneyField, RegExp][] = [
+  [
+    "spousePension",
+    /^(?:배우자|아내|남편)(?:의)?(?:예상)?(?:월)?(?:국민)?연금(?:액)?/,
+  ],
+  ["spouseIncome", /^(?:배우자|아내|남편)(?:의)?(?:세후)?(?:월급|월소득|급여)/],
+  ["catchupCost", /^(?:배우자)?(?:연금)?추납비용/],
+  ["catchupPension", /^(?:배우자)?추납후(?:월)?연금/],
+  ["jobIncome", /^재취업(?:후)?(?:월급|소득)/],
+  ["benefit", /^(?:월)?(?:구직급여|실업급여)(?:액)?/],
+  ["pension", /^(?:본인|내)?(?:예상)?(?:월)?(?:국민)?연금(?:액|예상액)?/],
+  ["income", /^(?:본인|내)?(?:세후)?(?:월급|월소득|급여)/],
+  ["assets", /^(?:현재)?(?:금융자산|예금|투자금|모아둔돈)/],
+  ["house", /^(?:현재)?(?:주택가격|집값)/],
+  ["loan", /^(?:주택담보)?대출(?:잔액)?/],
+  ["living", /^(?:한달|월)?생활비/],
+  ["severance", /^(?:예상)?(?:세후)?퇴직금/],
+];
+
+export function resolveIntakeSkip(
+  question: string,
+  h: Household,
+  s: Solutions,
+) {
+  const text = question
+    .trim()
+    .replace(/[.!?。]+$/, "")
+    .replace(/\s+/g, "");
+  const next = nextIntakeField(h, s);
+  let target = next;
+  if (!unknownAmount.test(text)) {
+    const named = amountNames.find(([, name]) => {
+      const match = name.exec(text);
+      return (
+        match &&
+        unknownAmount.test(
+          text.slice(match[0].length).replace(/^(?:은|는|을|를|이|가)/, ""),
+        )
+      );
+    });
+    if (!named) return null;
+    target = named[0];
+    if (
+      target === "pension" &&
+      next === "spousePension" &&
+      !/^(?:본인|내)/.test(text)
+    )
+      target = next;
+    if (
+      target === "income" &&
+      next === "spouseIncome" &&
+      !/^(?:본인|내)/.test(text)
+    )
+      target = next;
+  }
+  const patch: Partial<Household> = {};
+  if (
+    isSkippableMoneyField(target) &&
+    !(
+      h.hasSpouse === false &&
+      (target.startsWith("spouse") || target.startsWith("catchup"))
+    ) &&
+    !Number.isFinite(h[target])
+  ) {
+    patch[target] = 0;
+    return {
+      patch,
+      skipped: [target],
+      notice: `‘${inputLabels[target]}’ 항목을 건너뛰어 0원으로 정리했어요. 나중에 실제 금액을 입력할 수 있어요.`,
+    };
+  }
+  return {
+    patch,
+    skipped: [],
+    notice:
+      target && !isSkippableMoneyField(target)
+        ? "날짜, 배우자 여부, 대출 조건은 계산에 필요해요. 아래 질문에 답해 주세요."
+        : "건너뛸 미입력 금액이 없어요. 이미 입력한 금액은 직접 입력 화면에서 바꿀 수 있어요.",
+  };
 }
 
 export function optionalPlanHint(fields: (keyof Household)[]) {

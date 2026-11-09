@@ -43,6 +43,10 @@ import {
   mergeIntake,
   readScenarioFile,
   optionalPlanHint,
+  isSkippableMoneyField,
+  nextIntakeField,
+  resolveIntakeSkip,
+  skippableMoneyFields,
 } from "../lib/input";
 import type { Candidate } from "../lib/household-agent";
 import {
@@ -253,6 +257,7 @@ function NumberField({
   hint,
   onBlur,
   help,
+  onSkip,
 }: {
   label: string;
   value: number;
@@ -263,18 +268,33 @@ function NumberField({
   hint?: string;
   onBlur?: () => void;
   help?: ReactNode;
+  onSkip?: () => void;
 }) {
-  const errorId = useId();
+  const inputId = useId();
+  const errorId = `${inputId}-error`;
   const display = Number.isFinite(value)
     ? String(Number(value.toFixed(precision)))
     : "";
   const [draft, setDraft] = useState(display);
   useEffect(() => setDraft(display), [display]);
   return (
-    <label className="yp-field">
-      <span>{label}</span>
+    <div className="yp-field">
+      <div className="yp-field-heading">
+        <label htmlFor={inputId}>{label}</label>
+        {onSkip && !Number.isFinite(value) && (
+          <button
+            type="button"
+            className="yp-skip-amount"
+            onClick={onSkip}
+            aria-label={`${label} 건너뛰기 (0원)`}
+          >
+            건너뛰기
+          </button>
+        )}
+      </div>
       <span className={`yp-input ${error ? "invalid" : ""}`}>
         <input
+          id={inputId}
           type="text"
           inputMode="decimal"
           value={draft}
@@ -315,7 +335,7 @@ function NumberField({
           {error}
         </small>
       )}
-    </label>
+    </div>
   );
 }
 function Charts({
@@ -683,8 +703,19 @@ function PlannerWorkspace({
       m.revision === revision.current,
   );
   const pendingPatch = pendingIntake?.reply.intake?.patch ?? {};
+  const pendingSkips = pendingIntake?.reply.intake?.skipped ?? [];
   const intake = mergeIntake(h, s, pendingPatch);
   const intakePrepared = prepareScenario(intake.household, intake.solutions);
+  const nextAmount = nextIntakeField(intake.household, intake.solutions);
+  const skippedAmounts = skippableMoneyFields.filter(
+    (key) =>
+      origins[key] === "skipped" &&
+      h[key] === 0 &&
+      !(
+        h.hasSpouse === false &&
+        (key.startsWith("spouse") || key.startsWith("catchup"))
+      ),
+  );
   const intakeComplete =
     Boolean(intakePrepared.household) &&
     solutionSchema.safeParse(intake.solutions).success;
@@ -769,7 +800,10 @@ function PlannerWorkspace({
       setOrigins((previous) => ({
         ...previous,
         ...Object.fromEntries(
-          Object.keys(pendingPatch).map((key) => [key, "chat"]),
+          Object.keys(pendingPatch).map((key) => [
+            key,
+            pendingSkips.some((field) => field === key) ? "skipped" : "chat",
+          ]),
         ),
       }));
       setApplied("");
@@ -783,11 +817,12 @@ function PlannerWorkspace({
   const update = (
     key: keyof Household,
     value: string | number | boolean | undefined,
+    origin: Origin = "manual",
   ) => {
     if (key === "hasSpouse" && value === false)
       setS((v) => ({ ...v, catchup: false }));
     setH((v) => ({ ...v, [key]: value }));
-    setOrigins((v) => ({ ...v, [key]: "manual" }));
+    setOrigins((v) => ({ ...v, [key]: origin }));
     setNotice("");
     setApplied("");
     setUndo(null);
@@ -845,7 +880,18 @@ function PlannerWorkspace({
         onChange={(v) => update(key, unit === "%" ? v / 100 : v)}
         error={error}
         help={inputHelp[key]}
-        hint={origins[key] === "example" ? "예시에서 채운 값" : undefined}
+        onSkip={
+          isSkippableMoneyField(key)
+            ? () => update(key, 0, "skipped")
+            : undefined
+        }
+        hint={
+          origins[key] === "skipped"
+            ? "건너뛴 금액은 0원으로 계산해요."
+            : origins[key] === "example"
+              ? "예시에서 채운 값"
+              : undefined
+        }
       />
     );
   }
@@ -890,7 +936,11 @@ function PlannerWorkspace({
   }
   async function ask(prompt = question, clearDraft = true, explain = false) {
     const q = prompt.trim();
-    if (!q || sending.current || retryUntil > Date.now()) return;
+    const skipping =
+      collecting &&
+      !explain &&
+      resolveIntakeSkip(q, intake.household, intake.solutions);
+    if (!q || sending.current || (!skipping && retryUntil > Date.now())) return;
     sending.current = true;
     submittedExplanation.current = explain;
     setSubmittedQuestion(q);
@@ -949,7 +999,8 @@ function PlannerWorkspace({
       }
       if (signal.aborted) return;
       if (body.intake) {
-        const patch = { ...pendingPatch, ...body.intake.patch };
+        const latestPatch = body.intake.patch;
+        const patch = { ...pendingPatch, ...latestPatch };
         if ((patch.hasSpouse ?? h.hasSpouse) === false) {
           delete patch.spouseBirth;
           delete patch.spouseIncome;
@@ -957,6 +1008,14 @@ function PlannerWorkspace({
           delete patch.spouseEnd;
         }
         body.intake.patch = patch;
+        body.intake.skipped = skippableMoneyFields.filter(
+          (field) =>
+            patch[field] === 0 &&
+            (body.intake.skipped?.includes(field) ||
+              (collecting &&
+                pendingSkips.includes(field) &&
+                !Object.hasOwn(latestPatch, field))),
+        );
       }
       setMessages((m) => [
         ...m,
@@ -1269,8 +1328,8 @@ function PlannerWorkspace({
                 <div>
                   <h2 id="yp-settings-title">가구 정보</h2>
                   <p className="yp-note">
-                    금액은 만 원 단위로 입력해 주세요. 입력칸 아래에서 원
-                    단위로도 확인할 수 있어요.
+                    금액은 만 원 단위로 입력해 주세요. 모르는 금액은 건너뛰면
+                    0원으로 계산해요.
                   </p>
                 </div>
               </div>
@@ -1462,6 +1521,13 @@ function PlannerWorkspace({
           )}
           {activeView === "result" && (
             <div id="yp-analysis" className="yp-analysis">
+              {skippedAmounts.length > 0 && (
+                <p className="yp-skipped-notice">
+                  <strong>건너뛰어 0원으로 계산한 항목</strong>{" "}
+                  {skippedAmounts.map((key) => inputLabels[key]).join(" · ")}.
+                  실제 금액을 입력하면 결과가 달라질 수 있어요.
+                </p>
+              )}
               {current && result && (
                 <section
                   className="yp-result-summary"
@@ -2193,6 +2259,9 @@ function PlannerWorkspace({
                                       fieldNames[k] ||
                                       k}
                                     : {householdValue(v, k)}
+                                    {m.reply.intake?.skipped?.some(
+                                      (field) => field === k,
+                                    ) && " (건너뜀)"}
                                   </li>
                                 ),
                               )}
@@ -2216,7 +2285,11 @@ function PlannerWorkspace({
                                       ([k, v]) =>
                                         h[k as keyof Household] === v &&
                                         origins[k as keyof Household] ===
-                                          "chat",
+                                          (m.reply.intake?.skipped?.some(
+                                            (field) => field === k,
+                                          )
+                                            ? "skipped"
+                                            : "chat"),
                                     )
                                   ? "반영된 정보"
                                   : "이전 입력 정보"}
@@ -2428,6 +2501,16 @@ function PlannerWorkspace({
                       ? `${retrySeconds}초 뒤에 다시 보낼 수 있어요.`
                       : "Enter 전송 · Shift+Enter 줄바꿈"}
                   </small>
+                  {collecting && isSkippableMoneyField(nextAmount) && !busy && (
+                    <button
+                      type="button"
+                      className="yp-skip-amount"
+                      onClick={() => void ask("건너뛰기", false)}
+                      aria-label={`${inputLabels[nextAmount]} 건너뛰기 (0원)`}
+                    >
+                      {inputLabels[nextAmount]} 건너뛰기
+                    </button>
+                  )}
                   {busy ? (
                     <button
                       type="button"
@@ -2438,7 +2521,18 @@ function PlannerWorkspace({
                   ) : (
                     <button
                       className="yp-primary"
-                      disabled={!question.trim() || retrySeconds > 0}
+                      disabled={
+                        !question.trim() ||
+                        (retrySeconds > 0 &&
+                          !(
+                            collecting &&
+                            resolveIntakeSkip(
+                              question,
+                              intake.household,
+                              intake.solutions,
+                            )
+                          ))
+                      }
                     >
                       보내기
                     </button>

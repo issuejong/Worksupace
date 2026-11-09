@@ -24,7 +24,7 @@ export const householdSchema = z
     loan: money,
     loanRate: z.number().min(0).max(0.3),
     loanMonths: z.number().int().min(1).max(600),
-    living: z.number().min(50).max(2000),
+    living: z.number().min(0).max(2000),
     severance: money,
     tenure: z.number().min(0).max(60),
     pension: money,

@@ -1,15 +1,22 @@
 import { z } from "zod";
-import { blankHousehold, draftSchema } from "./input";
+import {
+  blankHousehold,
+  draftSchema,
+  skippableMoneyFields,
+  type SkippableMoneyField,
+} from "./input";
 import { householdSchema, solutionSchema, type Household } from "./household";
 import type { AgentReply } from "./household-agent";
 
 export const sessionKey = "young-planner:session:v1";
 
-export type Origin = "manual" | "chat" | "example" | "file";
+export type Origin = "manual" | "chat" | "example" | "file" | "skipped";
 export type Message = {
   revision?: number;
   question: string;
-  reply: AgentReply & { intake?: { patch: Partial<Household> } };
+  reply: AgentReply & {
+    intake?: { patch: Partial<Household>; skipped?: SkippableMoneyField[] };
+  };
   snapshot: string;
 };
 
@@ -38,14 +45,22 @@ const messageSchema = z.object({
     ),
     tools: z.array(z.string()),
     searched: z.number(),
-    intake: z.object({ patch: draftSchema }).optional(),
+    intake: z
+      .object({
+        patch: draftSchema,
+        skipped: z.array(z.enum(skippableMoneyFields)).optional(),
+      })
+      .optional(),
   }),
 });
 
 const sessionSchema = z.object({
   household: z.record(z.string(), z.unknown()),
   solutions: solutionSchema,
-  origins: z.record(z.string(), z.enum(["manual", "chat", "example", "file"])),
+  origins: z.record(
+    z.string(),
+    z.enum(["manual", "chat", "example", "file", "skipped"]),
+  ),
   messages: z.array(z.unknown()),
   question: z.string().max(1500),
   tab: z.enum(["result", "plan", "basis"]),

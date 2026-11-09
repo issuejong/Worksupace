@@ -394,3 +394,69 @@ it("accepts 20 requests, then returns the remaining cooldown without calling AI"
     error.mockRestore();
   }
 });
+
+it("uses zero for an unknown amount without a model and proceeds to the next question", async () => {
+  for (const key of [
+    "GEMINI_API_KEY",
+    "GROQ_API_KEY",
+    "OPENAI_API_KEY",
+    "AI_ACCESS_TOKEN",
+  ])
+    vi.stubEnv(key, "");
+  const response = await POST(
+    new Request("http://local/api/agent", {
+      method: "POST",
+      body: JSON.stringify({
+        operation: "collect",
+        question: "잘 모르겠어요",
+        household: {
+          birth: "1970-01",
+          retire: "2029-01",
+          hasSpouse: false,
+          income: 400,
+          assets: 6000,
+          loan: 0,
+        },
+        solutions: none,
+      }),
+    }),
+  );
+  expect(response.status).toBe(200);
+  const body = await response.json();
+  expect(body.intake).toEqual({ patch: { living: 0 }, skipped: ["living"] });
+  expect(body.answer).toContain("0원");
+  expect(body.answer).toContain("퇴직금");
+  expect(create).not.toHaveBeenCalled();
+});
+
+it("skips only the named missing amount and keeps required dates and known values", async () => {
+  vi.stubEnv("AI_ACCESS_TOKEN", "");
+  const collect = async (
+    question: string,
+    household: Record<string, unknown>,
+  ) => {
+    const response = await POST(
+      new Request("http://local/api/agent", {
+        method: "POST",
+        body: JSON.stringify({
+          operation: "collect",
+          question,
+          household,
+          solutions: none,
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    return response.json();
+  };
+  expect((await collect("국민연금은 아직 몰라요", {})).intake.patch).toEqual({
+    pension: 0,
+  });
+  const unknownDate = await collect("모름", {});
+  expect(unknownDate.intake.patch).toEqual({});
+  expect(unknownDate.answer).toContain("출생연월");
+  expect(
+    (await collect("국민연금은 모르겠어요", { pension: 150 })).intake.patch,
+  ).toEqual({});
+  expect(create).not.toHaveBeenCalled();
+});
