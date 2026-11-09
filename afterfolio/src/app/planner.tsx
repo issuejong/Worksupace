@@ -233,6 +233,16 @@ function DetailSummary({ children }: { children: ReactNode }) {
   );
 }
 
+function InputSources() {
+  return (
+    <details className="yp-input-sources">
+      <DetailSummary>입력할 금액을 모르겠다면</DetailSummary>
+      <p>{pensionHelp}</p>
+      <p>{inputHelp.assets}</p>
+    </details>
+  );
+}
+
 function NumberField({
   label,
   value,
@@ -340,7 +350,7 @@ function Charts({
           data={data}
           margin={{ top: 18, right: 12, bottom: 2, left: 0 }}
         >
-          <CartesianGrid vertical={false} stroke="#e5e9e3" />
+          <CartesianGrid vertical={false} stroke="#e2e6e8" />
           <XAxis
             dataKey="year"
             minTickGap={35}
@@ -357,7 +367,7 @@ function Charts({
           <Tooltip
             formatter={(v) => money(Number(v))}
             labelFormatter={(v) => `${v}년 말`}
-            contentStyle={{ borderRadius: 12, borderColor: "#d8e2db" }}
+            contentStyle={{ borderRadius: 12, borderColor: "var(--line)" }}
           />
           <ReferenceLine y={0} stroke="#a44d3e" />
           <ReferenceLine
@@ -370,7 +380,7 @@ function Charts({
               dataKey="before"
               name="계획 적용 전"
               dot={false}
-              stroke="#466176"
+              stroke="var(--baseline)"
               strokeDasharray="6 4"
               strokeWidth={2}
               isAnimationActive={false}
@@ -381,7 +391,7 @@ function Charts({
               dataKey="after"
               name="계획 적용 후"
               dot={false}
-              stroke="#14513d"
+              stroke="var(--plot-plan)"
               strokeWidth={3}
               isAnimationActive={false}
             />
@@ -430,39 +440,56 @@ function Charts({
 }
 type PlannerView = "home" | "chat" | "manual" | "result";
 
-function PlanningGuide() {
-  const steps = [
-    [
-      "내 상황 알려주기",
-      "은퇴 시기와 생활비, 연금과 자산을 대화하거나 직접 입력해요.",
-    ],
-    [
-      "생활비가 부족해지는 때 확인하기",
-      "자금이 부족해지는 시점과 비상자금이 충분한지 확인해요.",
-    ],
-    [
-      "다른 준비 방법 비교하기",
-      "재취업이나 연금 수령 시기를 바꿔 결과를 비교해요.",
-    ],
-  ] as const;
+function ExamplePreview() {
+  const { before, after } = useMemo(
+    () => ({
+      before: calculate(example, none, false),
+      after: calculate(example, adopted, true),
+    }),
+    [],
+  );
 
   return (
-    <section
-      className="yp-card yp-planning-guide"
-      aria-labelledby="yp-guide-title"
-    >
-      <h2 id="yp-guide-title">은퇴 계획, 이렇게 살펴봐요</h2>
-      <ol>
-        {steps.map(([title, description], index) => (
-          <li key={title}>
-            <span aria-hidden="true">0{index + 1}</span>
-            <div>
-              <h3>{title}</h3>
-              <p>{description}</p>
-            </div>
-          </li>
+    <section className="yp-example-preview" aria-labelledby="yp-preview-title">
+      <header>
+        <h2 id="yp-preview-title">권 부장 부부의 자금 전망</h2>
+        <p>돈이 처음 부족한 때를 비교했어요.</p>
+      </header>
+      <dl>
+        <div>
+          <dt>계획 적용 전</dt>
+          <dd>{dateText(before.firstNegative)}</dd>
+        </div>
+        <div>
+          <dt>계획 적용 후</dt>
+          <dd>{dateText(after.firstNegative)}</dd>
+        </div>
+      </dl>
+      <p className="yp-preview-period">
+        가상 사례 · {example.start} ~ {example.endYear}-12
+      </p>
+    </section>
+  );
+}
+
+function PlanningGuide() {
+  const items = [
+    ["은퇴 시기", "언제 일을 그만둘 예정인지"],
+    ["매달 쓰는 돈", "한 달 생활비와 대출에 갚는 돈"],
+    ["모아둔 돈과 연금", "예금·투자금 잔액과 매달 받을 국민연금 예상액"],
+  ];
+
+  return (
+    <section className="yp-planning-guide" aria-labelledby="yp-guide-title">
+      <h2 id="yp-guide-title">계산에 필요한 정보</h2>
+      <dl>
+        {items.map(([label, description]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{description}</dd>
+          </div>
         ))}
-      </ol>
+      </dl>
     </section>
   );
 }
@@ -519,9 +546,12 @@ function PlannerWorkspace({
     setHousehold(action);
   }
   const [exampleInfo, setExampleInfo] = useState(false);
+  const [hasOpenedChat, setHasOpenedChat] = useState(chatOpen);
   const router = useRouter();
   const [view, setView] = useState<"manual" | "result">("result");
   const chatLauncher = useRef<HTMLButtonElement | null>(null);
+  const chatClose = useRef<HTMLButtonElement | null>(null);
+  const planTab = useRef<HTMLButtonElement | null>(null);
   const main = useRef<HTMLElement | null>(null);
   const [tab, setTab] = useState<"result" | "plan" | "basis">("result");
   const [notice, setNotice] = useState(""),
@@ -671,6 +701,7 @@ function PlannerWorkspace({
   const inlineChat = activeView === "chat";
   const collecting = inlineChat || !result;
   const chatting = inlineChat || chatOpen;
+  const showConversation = chatting || hasOpenedChat;
   const settings = activeView === "manual";
   const conversation = messages.filter(
     (m) => Boolean(m.reply.intake) === collecting,
@@ -703,10 +734,16 @@ function PlannerWorkspace({
   }
 
   function openChat() {
+    setHasOpenedChat(true);
     setChatOpen(true);
-    requestAnimationFrame(() =>
-      agentInput.current?.focus({ preventScroll: true }),
-    );
+    requestAnimationFrame(() => {
+      const touchLayout = window.matchMedia(
+        "(max-width: 700px), (pointer: coarse)",
+      ).matches;
+      (touchLayout ? chatClose.current : agentInput.current)?.focus({
+        preventScroll: true,
+      });
+    });
   }
 
   function closeChat() {
@@ -1048,11 +1085,13 @@ function PlannerWorkspace({
         <Link className="yp-brand" href="/main">
           Afterfolio
         </Link>
-        {activeView !== "home" && (
-          <button type="button" onClick={() => goTo("home")}>
-            처음으로
-          </button>
-        )}
+        <button
+          className="yp-header-action"
+          type="button"
+          onClick={() => goTo(activeView === "home" ? "manual" : "home")}
+        >
+          {activeView === "home" ? "직접 입력" : "처음으로"}
+        </button>
       </header>
       <main className="yp-main" id="yp-main" tabIndex={-1} ref={main}>
         {activeView === "home" ? (
@@ -1064,8 +1103,8 @@ function PlannerWorkspace({
                 얼마나 오래 이어질까요?
               </h1>
               <p>
-                생활비와 연금, 보유 자산으로 자금이 부족해지는 때를 확인해요. 내
-                상황에 맞는 은퇴 계획도 비교해 보세요.
+                생활비와 연금, 모아둔 돈을 입력하면 언제 생활비가 부족해지는지
+                알 수 있어요. 재취업이나 연금 수령 시기를 바꿔 비교해 보세요.
               </p>
               <div className="yp-landing-actions">
                 <button className="yp-primary" onClick={() => goTo("chat")}>
@@ -1084,6 +1123,7 @@ function PlannerWorkspace({
                 </button>
               )}
             </div>
+            <ExamplePreview />
             <PlanningGuide />
           </section>
         ) : (
@@ -1101,9 +1141,9 @@ function PlannerWorkspace({
             </h1>
             <p>
               {activeView === "chat"
-                ? "은퇴 시기와 생활비를 알려주세요. 필요한 정보를 하나씩 확인해요."
+                ? "필요한 정보를 하나씩 묻고, 입력한 내용으로 은퇴 후 생활비를 계산해요."
                 : activeView === "manual"
-                  ? "예상 금액을 만 원 단위로 적어 주세요."
+                  ? "생활비, 모아둔 돈, 연금 예상액을 입력해 주세요."
                   : !current
                     ? "계산에 필요한 계획 조건을 확인해 주세요."
                     : `분석 기간: ${h.start} ~ ${h.endYear}-12`}
@@ -1146,7 +1186,7 @@ function PlannerWorkspace({
             >
               취소
             </button>
-            <button type="button" className="yp-primary" onClick={resetPlanner}>
+            <button type="button" className="yp-danger" onClick={resetPlanner}>
               초기화 확인
             </button>
           </div>
@@ -1226,13 +1266,15 @@ function PlannerWorkspace({
               aria-labelledby="yp-settings-title"
             >
               <div className="yp-panel-heading">
-                <h2 id="yp-settings-title">가구 정보</h2>
+                <div>
+                  <h2 id="yp-settings-title">가구 정보</h2>
+                  <p className="yp-note">
+                    금액은 만 원 단위로 입력해 주세요. 입력칸 아래에서 원
+                    단위로도 확인할 수 있어요.
+                  </p>
+                </div>
               </div>
               <div className="yp-settings-body">
-                <p className="yp-note">
-                  입력은 만 원 단위예요. 아래에 원 단위 금액도 함께 보여드려요.
-                  바꾸면 결과에 바로 반영돼요.
-                </p>
                 {groups.map((g, i) => (
                   <details
                     className="yp-input-group"
@@ -1431,7 +1473,7 @@ function PlannerWorkspace({
                         current.firstNegative ? "yp-metric-warning" : ""
                       }
                     >
-                      <dt>자금 부족 시점</dt>
+                      <dt>돈이 처음 부족한 때</dt>
                       <dd>{dateText(current.firstNegative)}</dd>
                       <dd className="yp-metric-detail">
                         계획 적용 전 {dateText(result.before.firstNegative)}
@@ -1456,67 +1498,72 @@ function PlannerWorkspace({
                         목표 {money(current.reserve)}
                       </dd>
                     </div>
+                    <div
+                      className={
+                        current.endAssets < 0 ? "yp-metric-warning" : ""
+                      }
+                    >
+                      <dt>{h.endYear}년 말 예상 잔액</dt>
+                      <dd>{money(current.endAssets)}</dd>
+                      <dd className="yp-metric-detail">
+                        {h.endYear}년 당시 금액
+                      </dd>
+                    </div>
                   </dl>
                 </section>
               )}
-              <nav className="yp-tabs" aria-label="분석 내용 선택">
-                {(
-                  [
-                    ["result", "결과 비교"],
-                    ["plan", "은퇴 계획"],
-                    ["basis", "가정과 근거"],
-                  ] as const
-                ).map(([key, label]) => (
+              <div className="yp-analysis-controls">
+                <nav className="yp-tabs" aria-label="분석 내용 선택">
+                  {(
+                    [
+                      ["result", "결과 비교"],
+                      ["plan", "은퇴 계획"],
+                      ["basis", "가정과 근거"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      ref={key === "plan" ? planTab : undefined}
+                      aria-pressed={tab === key}
+                      aria-controls={tab === key ? `yp-${key}` : undefined}
+                      disabled={key !== "plan" && !result}
+                      onClick={() => setTab(key)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </nav>
+                {tab === "result" && result && current && (
                   <button
-                    key={key}
-                    aria-pressed={tab === key}
-                    aria-controls={`yp-${key}`}
-                    disabled={key !== "plan" && !result}
-                    onClick={() => setTab(key)}
+                    className="yp-explain-result"
+                    disabled={busy || retrySeconds > 0}
+                    onClick={() => {
+                      openChat();
+                      void ask(
+                        "현재 은퇴 결과를 쉬운 말로 설명해 주세요. 계획 적용 전후에 돈이 부족해지는 시점, 가장 적게 남는 돈, 마지막 잔액이 어떻게 달라지는지 알려 주세요.",
+                        false,
+                        true,
+                      );
+                    }}
                   >
-                    {label}
+                    결과 설명 보기
                   </button>
-                ))}
-              </nav>
+                )}
+              </div>
               {tab === "result" && result && current && (
                 <div id="yp-result" className="yp-stack">
-                  <div className="yp-forecast-grid">
-                    <Charts
-                      before={result.before}
-                      after={current}
-                      year={h.start.slice(0, 4)}
-                    />
-                    <section
-                      className="yp-card yp-forecast-summary"
-                      aria-labelledby="yp-ending-balance"
-                    >
-                      <h2 id="yp-ending-balance">{h.endYear}년 말 예상 잔액</h2>
-                      <strong>{money(current.endAssets)}</strong>
-                      <p className="yp-note">
-                        {h.endYear}년에 통장에 표시될 금액
-                      </p>
-                      <button
-                        className="yp-primary"
-                        disabled={busy || retrySeconds > 0}
-                        onClick={() => {
-                          openChat();
-                          void ask(
-                            "현재 은퇴 결과를 쉬운 말로 설명해 주세요. 계획 적용 전후에 돈이 부족해지는 시점, 가장 적게 남는 돈, 마지막 잔액이 어떻게 달라지는지 알려 주세요.",
-                            false,
-                            true,
-                          );
-                        }}
-                      >
-                        결과 설명 보기
-                      </button>
-                    </section>
-                  </div>
-                  <section className="yp-card">
+                  <Charts
+                    before={result.before}
+                    after={current}
+                    year={h.start.slice(0, 4)}
+                  />
+                  <section className="yp-card yp-comparison">
                     <div className="yp-section-heading">
                       <div>
                         <h2>계획 전후 비교</h2>
                         <p>
-                          같은 가구 정보를 기준으로 계획 적용 전후를 비교해요.
+                          같은 소득과 생활비를 기준으로 준비 방법을 적용했을 때
+                          달라지는 점이에요.
                         </p>
                       </div>
                     </div>
@@ -1599,9 +1646,10 @@ function PlannerWorkspace({
                       정상 연금까지 {current.gapMonths}개월 · 가구에 근로·연금
                       소득이 없는 기간 {current.householdGap}개월
                     </p>
+                    <h3 id="yp-plan-status-title">준비 방법 적용 상태</h3>
                     <ul
                       className="yp-plan-status"
-                      aria-label="준비 방법 적용 상태"
+                      aria-labelledby="yp-plan-status-title"
                     >
                       {(
                         ["benefits", "job", "repay", "catchup", "home"] as const
@@ -1634,7 +1682,10 @@ function PlannerWorkspace({
                     <div className="yp-comparison-actions">
                       <button
                         className="yp-primary"
-                        onClick={() => setTab("plan")}
+                        onClick={() => {
+                          setTab("plan");
+                          planTab.current?.focus();
+                        }}
                       >
                         계획 바꾸기
                       </button>
@@ -1648,8 +1699,8 @@ function PlannerWorkspace({
                     <div>
                       <h2>적용할 준비 방법</h2>
                       <p>
-                        체크하면 바로 계산돼요. 자세한 금액은 항목을 펼쳐 바꿀
-                        수 있어요.
+                        준비 방법을 켜면 결과에 바로 반영돼요. 금액과 기간은 각
+                        항목에서 조절할 수 있어요.
                       </p>
                     </div>
                     <div className="yp-plan-actions">
@@ -1759,19 +1810,26 @@ function PlannerWorkspace({
                           key={key}
                         >
                           <label className="yp-check">
-                            <input
-                              type="checkbox"
-                              checked={s[key]}
-                              onChange={(e) =>
-                                setPlan({ [key]: e.target.checked })
-                              }
-                            />
-                            <span>
+                            <span className="yp-check-copy">
                               <strong>{label}</strong>
                               <small>{description}</small>
                             </span>
-                            <span className="yp-check-state">
-                              {s[key] ? "선택됨" : "선택 안 함"}
+                            <span className="yp-check-control">
+                              <input
+                                type="checkbox"
+                                role="switch"
+                                aria-label={label}
+                                checked={s[key]}
+                                onChange={(e) =>
+                                  setPlan({ [key]: e.target.checked })
+                                }
+                              />
+                              <span
+                                className="yp-check-state"
+                                aria-hidden="true"
+                              >
+                                {s[key] ? "선택됨" : "선택 안 함"}
+                              </span>
                             </span>
                           </label>
                           {s[key] && (
@@ -1943,9 +2001,14 @@ function PlannerWorkspace({
                 </section>
               )}
               {tab === "basis" && current && (
-                <section id="yp-basis" className="yp-card yp-stack">
-                  <div>
-                    <h2>계산 기준</h2>
+                <section
+                  id="yp-basis"
+                  className="yp-stack"
+                  aria-labelledby="yp-basis-title"
+                >
+                  <div className="yp-card yp-basis-values">
+                    <h2 id="yp-basis-title">계산 기준</h2>
+                    <p>분석 기간, 물가와 수익률을 확인할 수 있어요.</p>
                     <dl className="yp-assumptions">
                       <div>
                         <dt>분석 기간</dt>
@@ -1974,79 +2037,85 @@ function PlannerWorkspace({
                       {isExample ? "내 정보 입력하기" : "계산 가정 수정하기"}
                     </button>
                   </div>
-                  <div>
-                    <h3>금액을 읽는 방법</h3>
-                    <p>
-                      ‘구매력’은 물가 상승을 빼고 {h.start.slice(0, 4)}년 돈의
-                      가치로 바꾼 금액이에요. ‘명목금액’은 해당 연도에 실제로
-                      보이는 금액이에요. 주택연금은 대출이므로 마지막 금융자산을
-                      순자산이나 상속재산으로 볼 수 없어요.
-                    </p>
+                  <div className="yp-card yp-basis-guide">
+                    <div>
+                      <h3>금액을 읽는 방법</h3>
+                      <p>
+                        ‘구매력’은 물가 상승을 빼고 {h.start.slice(0, 4)}년 돈의
+                        가치로 바꾼 금액이에요. ‘명목금액’은 해당 연도에 실제로
+                        보이는 금액이에요. 주택연금은 대출이므로 마지막
+                        금융자산을 순자산이나 상속재산으로 볼 수 없어요.
+                      </p>
+                    </div>
+                    <div>
+                      <h3>비상자금과 자금 부족은 달라요</h3>
+                      <p>
+                        비상자금은 월 생활비와 현재 대출 월 상환액의{" "}
+                        {fmt(h.reserveMonths)}개월치예요. 자산이 0 이상이어도 이
+                        목표에 못 미칠 수 있어요. 자산이 음수인 달부터는
+                        충당하지 못한 부족액으로 표시해요.
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h3>비상자금과 자금 부족은 달라요</h3>
-                    <p>
-                      비상자금은 월 생활비와 현재 대출 월 상환액의{" "}
-                      {fmt(h.reserveMonths)}개월치예요. 자산이 0 이상이어도 이
-                      목표에 못 미칠 수 있어요. 자산이 음수인 달부터는 충당하지
-                      못한 부족액으로 표시해요.
-                    </p>
-                  </div>
-                  <details>
-                    <DetailSummary>월별 수입·지출 상세</DetailSummary>
-                    <p className="yp-note">
-                      금액은 원 단위로 반올림해요. 수입에는 예금 이자·투자
-                      수익이 포함돼요.
-                    </p>
-                    <div className="yp-scroll">
-                      <table>
-                        <thead>
-                          <tr>
-                            {[
-                              "월",
-                              "수입",
-                              "지출",
-                              "금융자산",
-                              "시작 연도 돈의 가치",
-                            ].map((k) => (
-                              <th key={k}>{k}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {current.rows.map((r) => (
-                            <tr key={r.date}>
-                              <th scope="row">{r.date}</th>
+                  <div className="yp-card yp-basis-data">
+                    <h3>월별 내역과 파일</h3>
+                    <details>
+                      <DetailSummary>월별 수입·지출 상세</DetailSummary>
+                      <p className="yp-note">
+                        금액은 원 단위로 반올림해요. 수입에는 예금 이자·투자
+                        수익이 포함돼요.
+                      </p>
+                      <div className="yp-scroll">
+                        <table>
+                          <thead>
+                            <tr>
                               {[
-                                r.income,
-                                r.expenses,
-                                r.assets,
-                                r.realAssets,
-                              ].map((v, i) => (
-                                <td key={i}>{money(v)}</td>
+                                "월",
+                                "수입",
+                                "지출",
+                                "금융자산",
+                                "시작 연도 돈의 가치",
+                              ].map((k) => (
+                                <th key={k}>{k}</th>
                               ))}
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </details>
-                  <details>
-                    <DetailSummary>계산 결과 저장</DetailSummary>
-                    <div className="yp-actions">
-                      <button onClick={csv}>월별 계산 CSV</button>
-                      <button onClick={verification}>
-                        예시 계산 대조표 CSV
-                      </button>
-                      <button onClick={() => window.print()}>
-                        화면 인쇄·PDF
-                      </button>
-                    </div>
-                    <p className="yp-note">
-                      예시 계산 대조표는 예시 가구의 기준값과 계산 결과를 비교한
-                      자료예요. CSV와 조건 파일에는 반올림 전 금액이 저장돼요.
-                    </p>
-                  </details>
+                          </thead>
+                          <tbody>
+                            {current.rows.map((r) => (
+                              <tr key={r.date}>
+                                <th scope="row">{r.date}</th>
+                                {[
+                                  r.income,
+                                  r.expenses,
+                                  r.assets,
+                                  r.realAssets,
+                                ].map((v, i) => (
+                                  <td key={i}>{money(v)}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                    <details>
+                      <DetailSummary>계산 결과 저장</DetailSummary>
+                      <div className="yp-actions">
+                        <button onClick={csv}>월별 계산 CSV</button>
+                        <button onClick={verification}>
+                          예시 계산 대조표 CSV
+                        </button>
+                        <button onClick={() => window.print()}>
+                          화면 인쇄·PDF
+                        </button>
+                      </div>
+                      <p className="yp-note">
+                        예시 계산 대조표는 예시 가구의 기준값과 계산 결과를
+                        비교한 자료예요. CSV와 조건 파일에는 반올림 전 금액이
+                        저장돼요.
+                      </p>
+                    </details>
+                  </div>
                   <p className="yp-note">
                     주택연금 월액과 건강보험료, 연금 추납 효과는 입력한 조건을
                     바탕으로 추정해요. 실제 가입 조건과 지급액은 담당 기관에서
@@ -2056,26 +2125,23 @@ function PlannerWorkspace({
               )}
             </div>
           )}
-          {chatting && (
+          {showConversation && (
             <section
               id="yp-agent"
               className={`yp-card yp-conversation ${inlineChat ? "" : "yp-agent"}`}
               aria-labelledby="yp-agent-title"
+              data-open={chatting}
+              inert={!chatting}
               onKeyDown={(event) => {
                 if (!inlineChat && event.key === "Escape") closeChat();
               }}
             >
               <div className="yp-panel-heading">
-                <h2
-                  id="yp-agent-title"
-                  className={inlineChat ? "yp-sr" : undefined}
-                >
-                  {inlineChat ? "상담 내용" : "은퇴 상담"}
-                </h2>
-                <span className="yp-chat-disclosure">AI 상담</span>
+                <h2 id="yp-agent-title">AI 상담</h2>
                 {!inlineChat && (
                   <button
                     type="button"
+                    ref={chatClose}
                     onClick={closeChat}
                     aria-label="챗봇 닫기"
                   >
@@ -2090,24 +2156,14 @@ function PlannerWorkspace({
                 aria-live="polite"
                 aria-busy={busy}
               >
-                {collecting && (
-                  <details className="yp-input-sources">
-                    <DetailSummary>입력할 금액을 모르겠다면</DetailSummary>
-                    <p>{pensionHelp}</p>
-                    <p>{inputHelp.assets}</p>
-                    <p className="yp-note">
-                      금액을 확인한 뒤 이 대화에 알려주세요. 링크는 새 창으로
-                      열려요.
-                    </p>
-                  </details>
-                )}
                 <div className="yp-agent-message yp-greeting">
                   <p>
                     {collecting
-                      ? "안녕하세요. 몇 년 몇 월에 은퇴할 예정이세요?"
-                      : "은퇴 전망을 함께 살펴볼까요? 자금이 부족해지는 시점이나 계획을 바꿨을 때 달라지는 점을 물어보세요."}
+                      ? "몇 년 몇 월에 은퇴할 예정이세요?"
+                      : "생활비가 부족해지는 이유나 준비 방법을 바꾸면 달라지는 점을 물어보세요."}
                   </p>
                 </div>
+                {collecting && !inlineChat && <InputSources />}
                 {conversation.map((m, i) => (
                   <article className="yp-exchange" key={i}>
                     <p className="yp-user-message">
@@ -2390,7 +2446,15 @@ function PlannerWorkspace({
                 </div>
               </form>
               {inlineChat && (
-                <div className="yp-panel-foot">
+                <aside
+                  className="yp-panel-foot yp-chat-aside"
+                  aria-labelledby="yp-chat-aside-title"
+                >
+                  <h3 id="yp-chat-aside-title">입력과 결과</h3>
+                  <p className="yp-note">
+                    대화 중에도 직접 입력 화면으로 이동하거나 결과를 확인할 수
+                    있어요.
+                  </p>
                   <div className="yp-actions">
                     <button onClick={() => goTo("manual")}>
                       직접 입력하기
@@ -2417,7 +2481,8 @@ function PlannerWorkspace({
                           : "결과를 보려면 입력한 날짜, 기간, 금액의 범위를 확인해 주세요."}
                     </p>
                   )}
-                </div>
+                  <InputSources />
+                </aside>
               )}
             </section>
           )}
@@ -2455,7 +2520,7 @@ function PlannerWorkspace({
           ref={chatLauncher}
           className="yp-chat-launcher"
           aria-expanded={chatOpen}
-          aria-controls={chatOpen ? "yp-agent" : undefined}
+          aria-controls={showConversation ? "yp-agent" : undefined}
           aria-label={chatOpen ? "챗봇 닫기" : "챗봇 열기"}
           onClick={chatOpen ? closeChat : openChat}
         >
@@ -2470,8 +2535,14 @@ function PlannerWorkspace({
             strokeLinejoin="round"
             aria-hidden="true"
           >
-            <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3V11.5A7.5 7.5 0 0 1 9.5 4h3a7.5 7.5 0 0 1 7.5 7.5Z" />
-            <path d="M7 10h8M7 14h5" />
+            {chatOpen ? (
+              <path d="m6 6 12 12M18 6 6 18" />
+            ) : (
+              <>
+                <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3V11.5A7.5 7.5 0 0 1 9.5 4h3a7.5 7.5 0 0 1 7.5 7.5Z" />
+                <path d="M7 10h8M7 14h5" />
+              </>
+            )}
           </svg>
         </button>
       )}

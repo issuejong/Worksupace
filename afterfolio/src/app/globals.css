@@ -1,10 +1,12 @@
 @import url("https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap");
 :root {
-  --ink: #243a32;
-  --muted: #65766d;
-  --green: #17654c;
-  --line: #dce4dc;
-  --paper: #f6f5ee;
+  --ink: #23282b;
+  --muted: #535d62;
+  --accent: #243c62;
+  --action-hover: #1d3253;
+  --action-active: #152740;
+  --line: #d5dadc;
+  --paper: #fff;
 }
 * {
   box-sizing: border-box;
@@ -32,14 +34,14 @@ button:disabled {
   opacity: 0.5;
 }
 a {
-  color: var(--green);
+  color: var(--accent);
 }
 :focus-visible {
   outline: 3px solid #b27a28;
   outline-offset: 3px;
 }
 ::selection {
-  background: #d1e8d7;
+  background: #e0e8f4;
 }
 button,
 input,
