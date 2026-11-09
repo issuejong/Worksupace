@@ -568,12 +568,11 @@ function PlannerWorkspace({
   const [exampleInfo, setExampleInfo] = useState(false);
   const [hasOpenedChat, setHasOpenedChat] = useState(chatOpen);
   const router = useRouter();
-  const [view, setView] = useState<"manual" | "result">("result");
+  const [view, setView] = useState<"manual" | "result" | null>(null);
+  const [showMonthly, setShowMonthly] = useState(false);
   const chatLauncher = useRef<HTMLButtonElement | null>(null);
   const chatClose = useRef<HTMLButtonElement | null>(null);
-  const planTab = useRef<HTMLButtonElement | null>(null);
   const main = useRef<HTMLElement | null>(null);
-  const [tab, setTab] = useState<"result" | "plan" | "basis">("result");
   const [notice, setNotice] = useState(""),
     [fileError, setFileError] = useState(""),
     [question, setQuestion] = useState(""),
@@ -637,7 +636,6 @@ function PlannerWorkspace({
         setOrigins(restored.origins);
         setMessages(restored.messages);
         setQuestion(restored.question);
-        setTab(restored.tab);
       }
     } catch {
       setStorageError("이 브라우저에 저장된 내용을 불러오지 못했어요.");
@@ -661,7 +659,7 @@ function PlannerWorkspace({
           origins,
           messages,
           question,
-          tab,
+          tab: "result",
           ai: chatOpen,
           revision: revision.current,
           snapshot,
@@ -679,7 +677,6 @@ function PlannerWorkspace({
     origins,
     messages,
     question,
-    tab,
     chatOpen,
     snapshot,
   ]);
@@ -695,6 +692,9 @@ function PlannerWorkspace({
       return null;
     }
   }, [h, s]);
+  useEffect(() => {
+    if (pathname === "/dashboard" && view === null && result) setView("result");
+  }, [pathname, view, result]);
   const prepared = prepareScenario(h, s);
   const pendingIntake = messages.findLast(
     (m) =>
@@ -726,9 +726,7 @@ function PlannerWorkspace({
         ? "chat"
         : isExample
           ? "result"
-          : view === "result" && !result && tab !== "plan"
-            ? "manual"
-            : view;
+          : (view ?? (result ? "result" : "manual"));
   const inlineChat = activeView === "chat";
   const collecting = inlineChat || !result;
   const chatting = inlineChat || chatOpen;
@@ -785,8 +783,13 @@ function PlannerWorkspace({
   }
 
   function showResult() {
-    setTab("result");
     goTo("result");
+  }
+
+  function jumpToSection(section: "plan" | "result") {
+    const target = document.getElementById(`yp-${section}`);
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: "start" });
   }
   function applyIntake(openResult: boolean) {
     if (busy || (openResult && !intakeComplete)) {
@@ -917,7 +920,6 @@ function PlannerWorkspace({
     setChatOpen(false);
     goTo("home");
     setExampleInfo(false);
-    setTab("result");
     setApplied("");
     setFileError("");
     setAIError("");
@@ -1068,8 +1070,8 @@ function PlannerWorkspace({
     }));
     setS(nextS.data);
     setApplied(c.name);
-    setTab("result");
     setNotice(`${c.name}을 적용했어요.`);
+    requestAnimationFrame(() => jumpToSection("result"));
   }
   const changes = (Object.keys(s) as (keyof Solutions)[]).filter(
     (k) => s[k] !== adopted[k],
@@ -1579,27 +1581,15 @@ function PlannerWorkspace({
                 </section>
               )}
               <div className="yp-analysis-controls">
-                <nav className="yp-tabs" aria-label="분석 내용 선택">
-                  {(
-                    [
-                      ["result", "결과 비교"],
-                      ["plan", "은퇴 계획"],
-                      ["basis", "가정과 근거"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <button
-                      key={key}
-                      ref={key === "plan" ? planTab : undefined}
-                      aria-pressed={tab === key}
-                      aria-controls={tab === key ? `yp-${key}` : undefined}
-                      disabled={key !== "plan" && !result}
-                      onClick={() => setTab(key)}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                <nav
+                  className="yp-section-nav"
+                  aria-label="결과 페이지 바로가기"
+                >
+                  {result && <a href="#yp-result">결과 비교</a>}
+                  <a href="#yp-plan">은퇴 계획</a>
+                  {result && <a href="#yp-basis">가정과 근거</a>}
                 </nav>
-                {tab === "result" && result && current && (
+                {result && current && (
                   <button
                     className="yp-explain-result"
                     disabled={busy || retrySeconds > 0}
@@ -1616,8 +1606,13 @@ function PlannerWorkspace({
                   </button>
                 )}
               </div>
-              {tab === "result" && result && current && (
-                <div id="yp-result" className="yp-stack">
+              {result && current && (
+                <section
+                  id="yp-result"
+                  className="yp-stack yp-scroll-section"
+                  aria-label="결과 비교"
+                  tabIndex={-1}
+                >
                   <Charts
                     before={result.before}
                     after={current}
@@ -1748,328 +1743,324 @@ function PlannerWorkspace({
                     <div className="yp-comparison-actions">
                       <button
                         className="yp-primary"
-                        onClick={() => {
-                          setTab("plan");
-                          planTab.current?.focus();
-                        }}
+                        onClick={() => jumpToSection("plan")}
                       >
                         계획 바꾸기
                       </button>
                     </div>
                   </section>
-                </div>
+                </section>
               )}
-              {tab === "plan" && (
-                <section id="yp-plan" className="yp-card">
-                  <div className="yp-section-heading">
-                    <div>
-                      <h2>적용할 준비 방법</h2>
-                      <p>
-                        준비 방법을 켜면 결과에 바로 반영돼요. 금액과 기간은 각
-                        항목에서 조절할 수 있어요.
-                      </p>
-                    </div>
-                    <div className="yp-plan-actions">
-                      <button
-                        onClick={() => {
-                          setS({ ...none });
-                          setApplied("");
-                          setUndo(null);
-                        }}
-                      >
-                        모두 선택 해제
-                      </button>
-                      <button
-                        onClick={() => {
-                          setS({ ...adopted });
-                          setApplied("");
-                          setUndo(null);
-                          setNotice(
-                            "가구 정보는 유지하고 예시 기본 계획만 적용했어요.",
-                          );
-                        }}
-                      >
-                        예시 기본 계획 적용
-                      </button>
-                    </div>
+              <section
+                id="yp-plan"
+                className="yp-card yp-scroll-section"
+                aria-labelledby="yp-plan-title"
+                tabIndex={-1}
+              >
+                <div className="yp-section-heading">
+                  <div>
+                    <h2 id="yp-plan-title">은퇴 계획</h2>
+                    <p>
+                      준비 방법을 켜면 결과에 바로 반영돼요. 금액과 기간은 각
+                      항목에서 조절할 수 있어요.
+                    </p>
                   </div>
-                  <p className="yp-note">
-                    예시 기본 계획은 아래 다섯 방법과 정상 연금 수령을 함께 쓰는
-                    안이에요.{" "}
-                    {changes.length
-                      ? `현재 ${changes.length}개 계획 조건이 달라요.`
-                      : "현재 같은 계획을 선택했어요."}
-                  </p>
-                  {changes.length > 0 && (
-                    <div className="yp-plan-summary">
-                      {changes.map((k) => (
-                        <span key={k}>
-                          {planLabels[k]}: {showValue(adopted[k], k)} →{" "}
-                          {showValue(s[k], k)}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <div className="yp-plan-list">
-                    {(
-                      [
-                        [
-                          "benefits",
-                          "구직급여 받기",
-                          "은퇴 후 일정 기간 생활비를 보태요.",
-                          [
-                            ["benefit", "예상 월 구직급여"],
-                            ["benefitMonths", "수령 기간", "개월"],
-                          ],
-                        ],
-                        [
-                          "job",
-                          "다시 일하기",
-                          s.benefits
-                            ? "구직급여 기간이 끝난 뒤부터 본인 정상 연금 전까지 일해요."
-                            : "은퇴 다음 달부터 본인 정상 연금 전까지 일해요.",
-                          [
-                            ["jobIncome", "재취업 월급"],
-                            [
-                              "jobDelay",
-                              s.benefits
-                                ? "구직급여 종료 후 추가 대기"
-                                : "은퇴 후 추가 대기",
-                              "개월",
-                            ],
-                          ],
-                        ],
-                        [
-                          "repay",
-                          "퇴직 시 대출 갚기",
-                          "목돈이 나가지만 이후 매달 대출 상환 부담이 줄어요.",
-                          [],
-                        ],
-                        [
-                          "catchup",
-                          "배우자 국민연금 더 채우기",
-                          "못 낸 기간의 보험료를 나중에 내는 ‘추납’이에요.",
-                          [
-                            ["catchupCost", "한 번에 낼 추납 비용"],
-                            ["catchupPension", "추납 후 배우자 월 연금"],
-                          ],
-                        ],
-                        [
-                          "home",
-                          "집으로 연금 받기",
-                          "집에 살면서 매달 돈을 받는 주택연금을 비교해요.",
-                          [["house", "현재 주택가격"]],
-                        ],
-                      ] as [
-                        "benefits" | "job" | "repay" | "catchup" | "home",
-                        string,
-                        string,
-                        FieldSpec[],
-                      ][]
-                    )
-                      .filter(
-                        ([key]) => key !== "catchup" || h.hasSpouse !== false,
-                      )
-                      .map(([key, label, description, fields]) => (
-                        <div
-                          className={`yp-plan-option ${s[key] ? "chosen" : ""}`}
-                          key={key}
-                        >
-                          <label className="yp-check">
-                            <span className="yp-check-copy">
-                              <strong>{label}</strong>
-                              <small>{description}</small>
-                            </span>
-                            <span className="yp-check-control">
-                              <input
-                                type="checkbox"
-                                role="switch"
-                                aria-label={label}
-                                checked={s[key]}
-                                onChange={(e) =>
-                                  setPlan({ [key]: e.target.checked })
-                                }
-                              />
-                              <span
-                                className="yp-check-state"
-                                aria-hidden="true"
-                              >
-                                {s[key] ? "선택됨" : "선택 안 함"}
-                              </span>
-                            </span>
-                          </label>
-                          {s[key] && (
-                            <details className="yp-plan-detail">
-                              <DetailSummary>
-                                {key === "repay"
-                                  ? "상환 방식"
-                                  : "금액·기간 조절"}
-                              </DetailSummary>
-                              {fields.map(field)}
-                              {key === "repay" && (
-                                <p>
-                                  은퇴 다음 달에 대출 잔액을 전액 상환해요. 현재
-                                  대출 잔액은 {money(h.loan)}이에요.
-                                </p>
-                              )}
-                              {key === "home" && (
-                                <>
-                                  <label className="yp-field">
-                                    <span>
-                                      주택연금 시작 연도{" "}
-                                      <strong>{s.homeYear}년</strong>
-                                    </span>
-                                    <input
-                                      type="range"
-                                      aria-label="주택연금 시작 연도"
-                                      min={Math.max(2026, +h.start.slice(0, 4))}
-                                      max={Math.min(2120, h.endYear)}
-                                      value={s.homeYear}
-                                      onChange={(e) =>
-                                        setPlan({ homeYear: +e.target.value })
-                                      }
-                                    />
-                                  </label>
-                                  <label className="yp-field">
-                                    <span>주택연금 시작 월</span>
-                                    <select
-                                      aria-label="주택연금 시작 월"
-                                      value={s.homeMonth}
-                                      onChange={(e) =>
-                                        setPlan({ homeMonth: +e.target.value })
-                                      }
-                                    >
-                                      {Array.from({ length: 12 }, (_, i) => (
-                                        <option key={i + 1} value={i + 1}>
-                                          {i + 1}월
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </label>
-                                  <p className="yp-note">
-                                    {s.homeYear}년 {s.homeMonth}월부터 월{" "}
-                                    {money(
-                                      s.homeOverride || estimatedHomePayment,
-                                    )}{" "}
-                                    추정 · 실제 지급액은 한국주택금융공사에서
-                                    확인해 주세요.
-                                  </p>
-                                  <label className="yp-checkbox">
-                                    <input
-                                      type="checkbox"
-                                      checked={s.homeOverride > 0}
-                                      onChange={(e) => {
-                                        setHomeOverrideError("");
-                                        setPlan({
-                                          homeOverride: e.target.checked
-                                            ? Math.min(
-                                                500,
-                                                Math.max(
-                                                  0.1,
-                                                  estimatedHomePayment,
-                                                ),
-                                              )
-                                            : 0,
-                                        });
-                                      }}
-                                    />
-                                    확인한 주택연금 월액 직접 입력
-                                  </label>
-                                  {s.homeOverride > 0 && (
-                                    <NumberField
-                                      label="확인한 주택연금 월액"
-                                      value={s.homeOverride}
-                                      precision={3}
-                                      error={homeOverrideError}
-                                      onBlur={() => setHomeOverrideError("")}
-                                      onChange={(v) => {
-                                        if (
-                                          !Number.isFinite(v) ||
-                                          v <= 0 ||
-                                          v > 500
-                                        ) {
-                                          setHomeOverrideError(
-                                            "0보다 크고 500만 원 이하인 금액을 입력해 주세요. 그전 금액으로 계산 중이에요.",
-                                          );
-                                          return;
-                                        }
-                                        setHomeOverrideError("");
-                                        setPlan({ homeOverride: v });
-                                      }}
-                                    />
-                                  )}
-                                </>
-                              )}
-                            </details>
-                          )}
-                        </div>
-                      ))}
-                  </div>
-                  <label className="yp-field yp-pension">
-                    <span>본인 국민연금은 언제 받을까요?</span>
-                    <select
-                      aria-label="본인 국민연금 수령 시기"
-                      value={s.pensionOffset}
-                      onChange={(e) =>
-                        setPlan({ pensionOffset: +e.target.value })
-                      }
+                  <div className="yp-plan-actions">
+                    <button
+                      onClick={() => {
+                        setS({ ...none });
+                        setApplied("");
+                        setUndo(null);
+                      }}
                     >
-                      {[
-                        -60, -48, -39, -36, -24, -12, 0, 12, 24, 36, 48, 60,
-                      ].map((n) => (
+                      모두 선택 해제
+                    </button>
+                    <button
+                      onClick={() => {
+                        setS({ ...adopted });
+                        setApplied("");
+                        setUndo(null);
+                        setNotice(
+                          "가구 정보는 유지하고 예시 기본 계획만 적용했어요.",
+                        );
+                      }}
+                    >
+                      예시 기본 계획 적용
+                    </button>
+                  </div>
+                </div>
+                <p className="yp-note">
+                  예시 기본 계획은 아래 다섯 방법과 정상 연금 수령을 함께 쓰는
+                  안이에요.{" "}
+                  {changes.length
+                    ? `현재 ${changes.length}개 계획 조건이 달라요.`
+                    : "현재 같은 계획을 선택했어요."}
+                </p>
+                {changes.length > 0 && (
+                  <div className="yp-plan-summary">
+                    {changes.map((k) => (
+                      <span key={k}>
+                        {planLabels[k]}: {showValue(adopted[k], k)} →{" "}
+                        {showValue(s[k], k)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="yp-plan-list">
+                  {(
+                    [
+                      [
+                        "benefits",
+                        "구직급여 받기",
+                        "은퇴 후 일정 기간 생활비를 보태요.",
+                        [
+                          ["benefit", "예상 월 구직급여"],
+                          ["benefitMonths", "수령 기간", "개월"],
+                        ],
+                      ],
+                      [
+                        "job",
+                        "다시 일하기",
+                        s.benefits
+                          ? "구직급여 기간이 끝난 뒤부터 본인 정상 연금 전까지 일해요."
+                          : "은퇴 다음 달부터 본인 정상 연금 전까지 일해요.",
+                        [
+                          ["jobIncome", "재취업 월급"],
+                          [
+                            "jobDelay",
+                            s.benefits
+                              ? "구직급여 종료 후 추가 대기"
+                              : "은퇴 후 추가 대기",
+                            "개월",
+                          ],
+                        ],
+                      ],
+                      [
+                        "repay",
+                        "퇴직 시 대출 갚기",
+                        "목돈이 나가지만 이후 매달 대출 상환 부담이 줄어요.",
+                        [],
+                      ],
+                      [
+                        "catchup",
+                        "배우자 국민연금 더 채우기",
+                        "못 낸 기간의 보험료를 나중에 내는 ‘추납’이에요.",
+                        [
+                          ["catchupCost", "한 번에 낼 추납 비용"],
+                          ["catchupPension", "추납 후 배우자 월 연금"],
+                        ],
+                      ],
+                      [
+                        "home",
+                        "집으로 연금 받기",
+                        "집에 살면서 매달 돈을 받는 주택연금을 비교해요.",
+                        [["house", "현재 주택가격"]],
+                      ],
+                    ] as [
+                      "benefits" | "job" | "repay" | "catchup" | "home",
+                      string,
+                      string,
+                      FieldSpec[],
+                    ][]
+                  )
+                    .filter(
+                      ([key]) => key !== "catchup" || h.hasSpouse !== false,
+                    )
+                    .map(([key, label, description, fields]) => (
+                      <div
+                        className={`yp-plan-option ${s[key] ? "chosen" : ""}`}
+                        key={key}
+                      >
+                        <label className="yp-check">
+                          <span className="yp-check-copy">
+                            <strong>{label}</strong>
+                            <small>{description}</small>
+                          </span>
+                          <span className="yp-check-control">
+                            <input
+                              type="checkbox"
+                              role="switch"
+                              aria-label={label}
+                              checked={s[key]}
+                              onChange={(e) =>
+                                setPlan({ [key]: e.target.checked })
+                              }
+                            />
+                            <span className="yp-check-state" aria-hidden="true">
+                              {s[key] ? "선택됨" : "선택 안 함"}
+                            </span>
+                          </span>
+                        </label>
+                        {s[key] && (
+                          <details className="yp-plan-detail">
+                            <DetailSummary>
+                              {key === "repay" ? "상환 방식" : "금액·기간 조절"}
+                            </DetailSummary>
+                            {fields.map(field)}
+                            {key === "repay" && (
+                              <p>
+                                은퇴 다음 달에 대출 잔액을 전액 상환해요. 현재
+                                대출 잔액은 {money(h.loan)}이에요.
+                              </p>
+                            )}
+                            {key === "home" && (
+                              <>
+                                <label className="yp-field">
+                                  <span>
+                                    주택연금 시작 연도{" "}
+                                    <strong>{s.homeYear}년</strong>
+                                  </span>
+                                  <input
+                                    type="range"
+                                    aria-label="주택연금 시작 연도"
+                                    min={Math.max(2026, +h.start.slice(0, 4))}
+                                    max={Math.min(2120, h.endYear)}
+                                    value={s.homeYear}
+                                    onChange={(e) =>
+                                      setPlan({ homeYear: +e.target.value })
+                                    }
+                                  />
+                                </label>
+                                <label className="yp-field">
+                                  <span>주택연금 시작 월</span>
+                                  <select
+                                    aria-label="주택연금 시작 월"
+                                    value={s.homeMonth}
+                                    onChange={(e) =>
+                                      setPlan({ homeMonth: +e.target.value })
+                                    }
+                                  >
+                                    {Array.from({ length: 12 }, (_, i) => (
+                                      <option key={i + 1} value={i + 1}>
+                                        {i + 1}월
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <p className="yp-note">
+                                  {s.homeYear}년 {s.homeMonth}월부터 월{" "}
+                                  {money(
+                                    s.homeOverride || estimatedHomePayment,
+                                  )}{" "}
+                                  추정 · 실제 지급액은 한국주택금융공사에서
+                                  확인해 주세요.
+                                </p>
+                                <label className="yp-checkbox">
+                                  <input
+                                    type="checkbox"
+                                    checked={s.homeOverride > 0}
+                                    onChange={(e) => {
+                                      setHomeOverrideError("");
+                                      setPlan({
+                                        homeOverride: e.target.checked
+                                          ? Math.min(
+                                              500,
+                                              Math.max(
+                                                0.1,
+                                                estimatedHomePayment,
+                                              ),
+                                            )
+                                          : 0,
+                                      });
+                                    }}
+                                  />
+                                  확인한 주택연금 월액 직접 입력
+                                </label>
+                                {s.homeOverride > 0 && (
+                                  <NumberField
+                                    label="확인한 주택연금 월액"
+                                    value={s.homeOverride}
+                                    precision={3}
+                                    error={homeOverrideError}
+                                    onBlur={() => setHomeOverrideError("")}
+                                    onChange={(v) => {
+                                      if (
+                                        !Number.isFinite(v) ||
+                                        v <= 0 ||
+                                        v > 500
+                                      ) {
+                                        setHomeOverrideError(
+                                          "0보다 크고 500만 원 이하인 금액을 입력해 주세요. 그전 금액으로 계산 중이에요.",
+                                        );
+                                        return;
+                                      }
+                                      setHomeOverrideError("");
+                                      setPlan({ homeOverride: v });
+                                    }}
+                                  />
+                                )}
+                              </>
+                            )}
+                          </details>
+                        )}
+                      </div>
+                    ))}
+                </div>
+                <label className="yp-field yp-pension">
+                  <span>본인 국민연금은 언제 받을까요?</span>
+                  <select
+                    aria-label="본인 국민연금 수령 시기"
+                    value={s.pensionOffset}
+                    onChange={(e) =>
+                      setPlan({ pensionOffset: +e.target.value })
+                    }
+                  >
+                    {[-60, -48, -39, -36, -24, -12, 0, 12, 24, 36, 48, 60].map(
+                      (n) => (
                         <option key={n} value={n}>
                           {n === 0
                             ? "정상 시기에 받기"
                             : `${Math.abs(n)}개월 ${n < 0 ? "일찍 받기" : "늦게 받기"}`}
                         </option>
-                      ))}
-                    </select>
-                  </label>
-                  <p className="yp-note">
-                    일찍 받으면 월 0.5% 감액, 늦게 받으면 월 0.6% 가산하는 단순
-                    비교예요. 가입기간·소득 등 실제 자격은 별도로 확인해야 해요.
-                  </p>
-                  {!result && (
-                    <p className="yp-error" role="alert">
-                      {prepared.missing.length
-                        ? `계산에 필요한 정보가 있어요. ${prepared.missing.map((key) => inputLabels[key] || fieldNames[key] || key).join(", ")}을 확인해 주세요.`
-                        : "계획에 입력한 날짜, 기간, 금액의 범위를 확인해 주세요."}
-                    </p>
-                  )}
-                  {prepared.optionalMissing.length > 0 && (
-                    <p className="yp-note">
-                      입력하지 않은 금액과 기간은 0원·0개월로 계산해요.
-                      금액·기간을 열거나 채팅에서 알려줄 수 있어요.
-                    </p>
-                  )}
-                  {current?.warnings.map((w) => (
-                    <p className="yp-warning" role="status" key={w}>
-                      주의 · {w}
-                    </p>
-                  ))}
-                  <div className="yp-actions">
-                    <button
-                      className="yp-primary"
-                      disabled={!result}
-                      onClick={() => setTab("result")}
-                    >
-                      결과 비교하기
-                    </button>
-                    {!isExample && (
-                      <button onClick={() => goTo("chat")}>
-                        채팅으로 계획 조건 입력
-                      </button>
+                      ),
                     )}
-                    <button disabled={!result} onClick={() => openChat()}>
-                      다른 계획 상담하기
+                  </select>
+                </label>
+                <p className="yp-note">
+                  일찍 받으면 월 0.5% 감액, 늦게 받으면 월 0.6% 가산하는 단순
+                  비교예요. 가입기간·소득 등 실제 자격은 별도로 확인해야 해요.
+                </p>
+                {!result && (
+                  <p className="yp-error" role="alert">
+                    {prepared.missing.length
+                      ? `계산에 필요한 정보가 있어요. ${prepared.missing.map((key) => inputLabels[key] || fieldNames[key] || key).join(", ")}을 확인해 주세요.`
+                      : "계획에 입력한 날짜, 기간, 금액의 범위를 확인해 주세요."}
+                  </p>
+                )}
+                {prepared.optionalMissing.length > 0 && (
+                  <p className="yp-note">
+                    입력하지 않은 금액과 기간은 0원·0개월로 계산해요.
+                    금액·기간을 열거나 채팅에서 알려줄 수 있어요.
+                  </p>
+                )}
+                {current?.warnings.map((w) => (
+                  <p className="yp-warning" role="status" key={w}>
+                    주의 · {w}
+                  </p>
+                ))}
+                <div className="yp-actions">
+                  <button
+                    className="yp-primary"
+                    disabled={!result}
+                    onClick={() => jumpToSection("result")}
+                  >
+                    결과 비교하기
+                  </button>
+                  {!isExample && (
+                    <button onClick={() => goTo("chat")}>
+                      채팅으로 계획 조건 입력
                     </button>
-                  </div>
-                </section>
-              )}
-              {tab === "basis" && current && (
+                  )}
+                  <button disabled={!result} onClick={() => openChat()}>
+                    다른 계획 상담하기
+                  </button>
+                </div>
+              </section>
+              {current && (
                 <section
                   id="yp-basis"
-                  className="yp-stack"
+                  className="yp-stack yp-scroll-section"
+                  tabIndex={-1}
                   aria-labelledby="yp-basis-title"
                 >
                   <div className="yp-card yp-basis-values">
@@ -2125,44 +2116,50 @@ function PlannerWorkspace({
                   </div>
                   <div className="yp-card yp-basis-data">
                     <h3>월별 내역과 파일</h3>
-                    <details>
+                    <details
+                      onToggle={(event) =>
+                        setShowMonthly(event.currentTarget.open)
+                      }
+                    >
                       <DetailSummary>월별 수입·지출 상세</DetailSummary>
                       <p className="yp-note">
                         금액은 원 단위로 반올림해요. 수입에는 예금 이자·투자
                         수익이 포함돼요.
                       </p>
-                      <div className="yp-scroll">
-                        <table>
-                          <thead>
-                            <tr>
-                              {[
-                                "월",
-                                "수입",
-                                "지출",
-                                "금융자산",
-                                "시작 연도 돈의 가치",
-                              ].map((k) => (
-                                <th key={k}>{k}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {current.rows.map((r) => (
-                              <tr key={r.date}>
-                                <th scope="row">{r.date}</th>
+                      {showMonthly && (
+                        <div className="yp-scroll">
+                          <table>
+                            <thead>
+                              <tr>
                                 {[
-                                  r.income,
-                                  r.expenses,
-                                  r.assets,
-                                  r.realAssets,
-                                ].map((v, i) => (
-                                  <td key={i}>{money(v)}</td>
+                                  "월",
+                                  "수입",
+                                  "지출",
+                                  "금융자산",
+                                  "시작 연도 돈의 가치",
+                                ].map((k) => (
+                                  <th key={k}>{k}</th>
                                 ))}
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                            </thead>
+                            <tbody>
+                              {current.rows.map((r) => (
+                                <tr key={r.date}>
+                                  <th scope="row">{r.date}</th>
+                                  {[
+                                    r.income,
+                                    r.expenses,
+                                    r.assets,
+                                    r.realAssets,
+                                  ].map((v, i) => (
+                                    <td key={i}>{money(v)}</td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </details>
                     <details>
                       <DetailSummary>계산 결과 저장</DetailSummary>
