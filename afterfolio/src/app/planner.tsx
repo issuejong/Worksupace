@@ -28,7 +28,8 @@ import {
   calculate,
   householdSchema,
   solutionSchema,
-  homePayment,
+  homePaymentDetails,
+  homePaymentSource,
   Household,
   Solutions,
   Simulation,
@@ -108,6 +109,7 @@ const assumptionFields: FieldSpec[] = [
   ["wageGrowth", "연 임금상승률", "%"],
   ["beforeReturn", "계획 적용 전 연 수익률", "%"],
   ["planReturn", "계획 적용 후 연 수익률", "%"],
+  ["propertyHealthPremium", "지역건강보험료 중 월 재산보험료", "원"],
   ["loanRate", "대출 연금리", "%"],
   ["loanMonths", "대출 남은 기간", "개월"],
   ["reserveMonths", "비상자금 목표", "개월치"],
@@ -826,7 +828,7 @@ function PlannerWorkspace({
       Boolean(issue) &&
       (typeof h[key] === "number" ? Number.isFinite(h[key]) : Boolean(h[key]));
     const suffix = unit || "만 원",
-      scale = unit === "%" ? 100 : 1;
+      scale = unit === "%" ? 100 : unit === "원" ? 10000 : 1;
     const error = !invalid
       ? undefined
       : issue?.code === "too_small"
@@ -859,10 +861,10 @@ function PlannerWorkspace({
       <NumberField
         key={key}
         label={label}
-        value={unit === "%" ? value * 100 : value}
+        value={value * scale}
         unit={unit}
-        precision={unit === "%" ? 4 : 1}
-        onChange={(v) => update(key, unit === "%" ? v / 100 : v)}
+        precision={unit === "%" ? 4 : unit === "원" ? 0 : 1}
+        onChange={(v) => update(key, v / scale)}
         error={error}
         help={
           isSkippableMoneyField(key) ? <LookupHelp field={key} /> : undefined
@@ -873,11 +875,13 @@ function PlannerWorkspace({
             : undefined
         }
         hint={
-          origins[key] === "skipped"
-            ? "건너뛴 금액은 0원으로 계산해요."
-            : origins[key] === "example"
-              ? "예시에서 채운 값"
-              : undefined
+          key === "propertyHealthPremium"
+            ? "지역가입 때 적용할 재산분만 입력해 주세요. 0원 또는 빈칸이면 재산분은 0원으로 계산해요."
+            : origins[key] === "skipped"
+              ? "건너뛴 금액은 0원으로 계산해요."
+              : origins[key] === "example"
+                ? "예시에서 채운 값"
+                : undefined
         }
       />
     );
@@ -1064,7 +1068,7 @@ function PlannerWorkspace({
   function csv() {
     if (!result) return;
     const lines = [
-      "모델,계획,월,수입,지출,운용수익,금융자산,기준년구매력자산,대출잔액",
+      "모델,계획,월,수입,지출,운용수익,금융자산,기준년구매력자산,대출잔액,건강보험료,주택연금",
     ];
     for (const [name, r] of [
       ["계획 적용 전", result.before],
@@ -1082,6 +1086,8 @@ function PlannerWorkspace({
             row.assets,
             row.realAssets,
             row.loan,
+            row.components.건강보험,
+            row.components.주택연금,
           ].join(","),
         );
     save("영플래너_월별계산.csv", lines.join("\n"), "text/csv;charset=utf-8");
@@ -1089,37 +1095,57 @@ function PlannerWorkspace({
   function verification() {
     const before = calculate(example, none, false),
       after = calculate(example, adopted);
+    const amounts = [
+      ["계획 적용 전 생애 순수지", -29594.690440884406, before.lifeNet],
+      ["계획 적용 전 최저 자산", -21448.8646698769, before.minAssets],
+      ["계획 적용 전 기말 자산", -42054.2748723114, before.endAssets],
+      ["계획 적용 후 최저 자산", 3558.62969139837, after.minAssets],
+      ["계획 적용 후 생애 순수지", 5297.375649082209, after.lifeNet],
+      ["계획 적용 후 기말 자산", 13544.9407901184, after.endAssets],
+    ] as const;
+    const rows = [
+      ["모델", "지표", "단위", "기준값", "계산값", "차이"],
+      [
+        version,
+        "계획 적용 전 최초 부족월",
+        "연월",
+        "2031-02",
+        before.firstNegative ?? "없음",
+        before.firstNegative === "2031-02" ? "일치" : "불일치",
+      ],
+      [
+        version,
+        "계획 적용 후 최초 부족월",
+        "연월",
+        "없음",
+        after.firstNegative ?? "없음",
+        after.firstNegative === null ? "일치" : "불일치",
+      ],
+      ...amounts.map(([label, expected, actual]) => [
+        version,
+        label,
+        "만원",
+        expected,
+        actual,
+        actual - expected,
+      ]),
+    ];
     save(
       "영플래너_검증대조.csv",
-      "지표,기준값,계산값,차이\n" +
-        [
-          ["최초 부족월", "2031-02", before.firstNegative, "일치"],
-          [
-            "계획 적용 전 생애 순수지",
-            -29398.8546046442,
-            before.lifeNet,
-            before.lifeNet + 29398.8546046442,
-          ],
-          [
-            "계획 적용 후 최저 자산",
-            3616.55185834155,
-            after.minAssets,
-            after.minAssets - 3616.55185834155,
-          ],
-          [
-            "계획 적용 후 기말 자산",
-            14133.8896773549,
-            after.endAssets,
-            after.endAssets - 14133.8896773549,
-          ],
-        ]
-          .map((r) => r.join(","))
-          .join("\n"),
+      rows.map((row) => row.join(",")).join("\n"),
       "text/csv;charset=utf-8",
     );
   }
   const current = result?.after;
-  const estimatedHomePayment = homePayment(h, s.homeYear, s.homeMonth) || 0;
+  const housing = homePaymentDetails(
+    h,
+    s.homeYear,
+    s.homeMonth,
+    s.homeOverride,
+  );
+  const housingStart = s.home
+    ? current?.rows.find((row) => row.components.주택연금 > 0)?.date
+    : undefined;
   return (
     <div
       className={`yp-app yp-flow yp-view-${activeView} ${chatOpen && !inlineChat ? "yp-chat-visible" : ""}`}
@@ -1923,12 +1949,9 @@ function PlannerWorkspace({
                                   </select>
                                 </label>
                                 <p className="yp-note">
-                                  {s.homeYear}년 {s.homeMonth}월부터 월{" "}
-                                  {money(
-                                    s.homeOverride || estimatedHomePayment,
-                                  )}{" "}
-                                  추정 · 실제 지급액은 한국주택금융공사에서
-                                  확인해 주세요.
+                                  {housing.source === "unavailable"
+                                    ? "주택가격과 시작 시점을 확인하거나 월 지급액을 직접 입력해 주세요."
+                                    : `${s.homeYear}년 ${s.homeMonth}월 시작 조건에서 월 ${money(housing.amount)} · ${homePaymentSource[housing.source]}`}
                                 </p>
                                 <label className="yp-checkbox">
                                   <input
@@ -1942,7 +1965,7 @@ function PlannerWorkspace({
                                               500,
                                               Math.max(
                                                 0.1,
-                                                estimatedHomePayment,
+                                                housing.amount ?? 0,
                                               ),
                                             )
                                           : 0,
@@ -2074,6 +2097,23 @@ function PlannerWorkspace({
                         <dt>수입 기준</dt>
                         <dd>세후 금액</dd>
                       </div>
+                      <div>
+                        <dt>지역건강보험료 중 재산분</dt>
+                        <dd>
+                          기준월 {money(h.propertyHealthPremium ?? 0)} ·
+                          장기요양보험료 전
+                        </dd>
+                      </div>
+                      {s.home && (
+                        <div>
+                          <dt>주택연금 반영</dt>
+                          <dd>
+                            {housingStart && housing.source !== "unavailable"
+                              ? `${dateText(housingStart)}부터 월 ${money(housing.amount)} · ${homePaymentSource[housing.source]}`
+                              : "분석 기간에 반영된 금액 없음"}
+                          </dd>
+                        </div>
+                      )}
                     </dl>
                     <button onClick={() => goTo(isExample ? "chat" : "manual")}>
                       {isExample ? "내 정보 입력하기" : "계산 가정 수정하기"}
@@ -2165,9 +2205,9 @@ function PlannerWorkspace({
                     </details>
                   </div>
                   <p className="yp-note">
-                    주택연금 월액과 건강보험료, 연금 추납 효과는 입력한 조건을
-                    바탕으로 추정해요. 실제 가입 조건과 지급액은 담당 기관에서
-                    확인해 주세요.
+                    주택연금은 실제 가입 시점의 주택가격과 지급표로 다시 확인해
+                    주세요. 지역건강보험료는 연금소득과 입력한 재산분을 바탕으로
+                    계산해요.
                   </p>
                 </section>
               )}

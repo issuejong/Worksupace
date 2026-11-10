@@ -172,6 +172,11 @@ const caseHomeQuotes = [
   { year: 2031, month: 2, house: 31500, amount: 68.815 },
   { year: 2035, month: 2, house: 35000, amount: 88.543 },
 ];
+export const homePaymentSource = {
+  case: "예시 조회값 · 2026년 3월 지급표 기준",
+  estimate: "지급표를 바탕으로 계산한 추정값",
+  manual: "직접 입력한 금액",
+};
 export function homePaymentDetails(
   h: Household,
   year: number,
@@ -184,7 +189,8 @@ export function homePaymentDetails(
     h.birth === example.birth &&
     h.spouseBirth === example.spouseBirth
       ? caseHomeQuotes.find(
-          (q) => q.year === year && q.month === monthOfYear && q.house === h.house,
+          (q) =>
+            q.year === year && q.month === monthOfYear && q.house === h.house,
         )
       : undefined;
   if (quote) return { amount: quote.amount, source: "case" } as const;
@@ -233,7 +239,8 @@ export function calculate(
     normal = pensionStart(h.birth),
     wife = pensionStart(h.spouseBirth),
     home =
-      homePaymentDetails(h, s.homeYear, s.homeMonth, s.homeOverride).amount ?? 0;
+      homePaymentDetails(h, s.homeYear, s.homeMonth, s.homeOverride).amount ??
+      0;
   const warnings: string[] = [];
   const homeStart = s.homeYear * 12 + s.homeMonth;
   const hasHousingAmount = h.house > 0 || s.homeOverride > 0;

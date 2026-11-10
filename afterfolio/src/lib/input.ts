@@ -131,6 +131,9 @@ export function prepareScenario(h: Household, s: Solutions) {
   const normalized = {
     ...h,
     house: Number.isFinite(h.house) ? h.house : 0,
+    propertyHealthPremium: Number.isNaN(h.propertyHealthPremium)
+      ? 0
+      : h.propertyHealthPremium,
     spouseBirth: single ? h.birth : h.spouseBirth,
     spouseIncome: single ? 0 : h.spouseIncome,
     spousePension: single ? 0 : h.spousePension,

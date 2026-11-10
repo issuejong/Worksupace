@@ -1,5 +1,12 @@
 import { money } from "./money";
-import { calculate, none, type Household, type Solutions } from "./household";
+import {
+  calculate,
+  homePaymentDetails,
+  homePaymentSource,
+  none,
+  type Household,
+  type Solutions,
+} from "./household";
 
 const monthText = (month: string | null) => {
   if (!month) return "부족 없음";
@@ -38,5 +45,25 @@ export function retirementExplanation(
           ? "계획을 적용하면 분석 마지막 해의 예상 잔액이 줄어요."
           : "계획을 적용해도 분석 마지막 해의 예상 잔액은 같아요.",
   };
-  return { facts, takeaways };
+  const assumptions: string[] = [];
+  const propertyPremium = household.propertyHealthPremium ?? 0;
+  if (propertyPremium > 0)
+    assumptions.push(
+      `지역건강보험료는 기준월 재산분 ${money(propertyPremium)}을 기준으로 계산했어요.`,
+    );
+  if (solutions.home) {
+    const housing = homePaymentDetails(
+      household,
+      solutions.homeYear,
+      solutions.homeMonth,
+      solutions.homeOverride,
+    );
+    const firstPayment = after.rows.find((row) => row.components.주택연금 > 0);
+    assumptions.push(
+      firstPayment && housing.source !== "unavailable"
+        ? `주택연금은 ${monthText(firstPayment.date)}부터 월 ${money(firstPayment.components.주택연금)}을 반영했어요. (${homePaymentSource[housing.source]})`
+        : "이번 분석 기간에는 주택연금이 반영되지 않았어요.",
+    );
+  }
+  return { facts, takeaways, assumptions };
 }

@@ -383,7 +383,7 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     if (input.operation === "explain") {
-      const { facts, takeaways } = retirementExplanation(
+      const { facts, takeaways, assumptions } = retirementExplanation(
         ready,
         input.solutions,
       );
@@ -403,7 +403,12 @@ export async function POST(req: Request) {
       const selected =
         focus === "reserve" || focus === "balance" ? focus : "shortfall";
       return respond({
-        answer: `${takeaways[selected]}\n\n${facts}\n\n‘부족’은 시뮬레이션에서 충당하지 못한 생활자금이에요.`,
+        answer: [
+          takeaways[selected],
+          facts,
+          ...assumptions,
+          "‘부족’은 시뮬레이션에서 충당하지 못한 생활자금이에요.",
+        ].join("\n\n"),
         candidates: [],
         tools: ["explain"],
         searched: 0,
