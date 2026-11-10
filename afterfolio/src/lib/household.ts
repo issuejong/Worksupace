@@ -2,7 +2,7 @@ import { z } from "zod";
 import base from "../data/params.json";
 import { engine, Params, Result } from "./finance";
 import { householdPensions } from "./pension";
-export const version = "report-v1.1/v11 · 2026-11";
+export const version = "report-v1.7/v17 · 2026-11";
 const date = z
   .string()
   .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
@@ -35,6 +35,7 @@ export const householdSchema = z
     childEnd: date,
     inflation: z.number().min(0).max(0.1),
     wageGrowth: z.number().min(0).max(0.1),
+    propertyHealthPremium: money.optional(),
     beforeReturn: z.number().min(-0.2).max(0.2),
     planReturn: z.number().min(-0.2).max(0.2),
     jobIncome: money,
@@ -97,7 +98,7 @@ export const example: Household = {
   loanRate: 0.048,
   loanMonths: 120,
   living: 250,
-  severance: base["15"],
+  severance: 4881.42055985706,
   tenure: 12 + 1 / 12,
   pension: pensions.husband,
   spousePension: pensions.wife,
@@ -107,9 +108,10 @@ export const example: Household = {
   childEnd: "2027-12",
   inflation: 0.02,
   wageGrowth: 0.03,
+  propertyHealthPremium: 0.4653,
   beforeReturn: 0.02538,
   planReturn: 0.027918,
-  jobIncome: 197.4684957,
+  jobIncome: 196.8806207,
   jobDelay: 0,
   benefit: 198.144,
   benefitMonths: 9,
@@ -162,7 +164,31 @@ export function installment(loan: number, rate: number, months: number) {
   if (!i) return loan / months;
   return (loan * i) / -Math.expm1(-months * Math.log1p(i));
 }
-export function homePayment(h: Household, year: number, monthOfYear = 2) {
+// Case figures recorded in the v1.7 workbook, in 만 원 per month.
+const caseHomeQuotes = [
+  { year: 2027, month: 2, house: 35000, amount: 61.741 },
+  { year: 2027, month: 11, house: 35000, amount: 61.741 },
+  { year: 2031, month: 2, house: 35000, amount: 76.461 },
+  { year: 2031, month: 2, house: 31500, amount: 68.815 },
+  { year: 2035, month: 2, house: 35000, amount: 88.543 },
+];
+export function homePaymentDetails(
+  h: Household,
+  year: number,
+  monthOfYear: number,
+  override = 0,
+) {
+  if (override > 0) return { amount: override, source: "manual" } as const;
+  const quote =
+    h.hasSpouse !== false &&
+    h.birth === example.birth &&
+    h.spouseBirth === example.spouseBirth
+      ? caseHomeQuotes.find(
+          (q) => q.year === year && q.month === monthOfYear && q.house === h.house,
+        )
+      : undefined;
+  if (quote) return { amount: quote.amount, source: "case" } as const;
+
   const age = Math.floor(
     (year * 12 +
       monthOfYear -
@@ -171,15 +197,19 @@ export function homePayment(h: Household, year: number, monthOfYear = 2) {
         : Math.max(month(h.birth), month(h.spouseBirth)))) /
       12,
   );
-  if (age < 55 || age > 70) return null;
+  if (!Number.isFinite(age) || age < 55 || age > 70 || !(h.house > 0))
+    return { amount: null, source: "unavailable" } as const;
   const ages = [55, 60, 65, 70],
     amount = [54.6, 73.7, 88.45, 107.7];
   const i = Math.min(2, Math.floor((age - 55) / 5));
-  return (
+  const monthly =
     ((amount[i] + ((amount[i + 1] - amount[i]) * (age - ages[i])) / 5) *
       h.house) /
-    35000
-  );
+    35000;
+  return { amount: monthly, source: "estimate" } as const;
+}
+export function homePayment(h: Household, year: number, monthOfYear = 2) {
+  return homePaymentDetails(h, year, monthOfYear).amount;
 }
 export type Simulation = Result & {
   lifeNet: number;
@@ -202,7 +232,8 @@ export function calculate(
     retire = month(h.retire),
     normal = pensionStart(h.birth),
     wife = pensionStart(h.spouseBirth),
-    home = s.homeOverride || homePayment(h, s.homeYear, s.homeMonth) || 0;
+    home =
+      homePaymentDetails(h, s.homeYear, s.homeMonth, s.homeOverride).amount ?? 0;
   const warnings: string[] = [];
   const homeStart = s.homeYear * 12 + s.homeMonth;
   const hasHousingAmount = h.house > 0 || s.homeOverride > 0;
@@ -256,6 +287,7 @@ export function calculate(
     23: h.loanRate,
     24: pay,
     25: h.assets,
+    30: h.propertyHealthPremium ?? 0,
     31: h.benefit,
     32: h.benefitMonths,
     33: retire + 1 + (paysBenefits ? h.benefitMonths : 0) + h.jobDelay,

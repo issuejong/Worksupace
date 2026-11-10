@@ -187,7 +187,7 @@ it("rounds display only and keeps engine precision", () => {
   expect(fmt(3616.55185834155)).toBe("3,616.6");
   expect(fmt(2.7918)).toBe("2.8");
   expect(calculate(example, adopted).minAssets).toBeCloseTo(
-    3616.55185834155,
+    3558.62969139837,
     6,
   );
 });

@@ -22,7 +22,7 @@ it("distinguishes zero from absent and rejects invalid proposed inputs", () => {
 });
 it("preserves the full example calculation", () => {
   const h = prepareScenario(example, adopted).household!;
-  expect(calculate(h, adopted).minAssets).toBeCloseTo(3616.55185834155, 6);
+  expect(calculate(h, adopted).minAssets).toBeCloseTo(3558.62969139837, 6);
 });
 it("keeps selected strategies optional and ignores their unfilled cash flows", () => {
   const h = {

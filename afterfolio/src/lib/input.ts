@@ -28,6 +28,7 @@ export const inputLabels: Partial<Record<keyof Household, string>> = {
   benefitMonths: "구직급여 기간",
   catchupCost: "추납 비용",
   catchupPension: "추납 후 월 연금",
+  propertyHealthPremium: "지역건강보험료 중 월 재산보험료",
 };
 export function blankHousehold(): Household {
   const today = new Date().toLocaleDateString("sv-SE", {
@@ -60,6 +61,7 @@ export function blankHousehold(): Household {
     childEnd: start,
     inflation: 0.02,
     wageGrowth: 0.03,
+    propertyHealthPremium: 0,
     beforeReturn: 0.02538,
     planReturn: 0.027918,
     jobIncome: NaN,

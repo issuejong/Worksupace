@@ -27,9 +27,10 @@ describe("household simulator", () => {
     const b = calculate(example, none, false),
       a = calculate(example, adopted);
     expect(b.firstNegative).toBe("2031-02");
-    expect(b.lifeNet).toBeCloseTo(-29398.8546046442, 4);
-    expect(a.minAssets).toBeCloseTo(3616.55185834155, 4);
-    expect(a.lifeNet).toBeCloseTo(5556.72076379601, 4);
+    expect(b.lifeNet).toBeCloseTo(-29594.690440884406, 4);
+    expect(a.minAssets).toBeCloseTo(3558.62969139837, 4);
+    expect(a.endAssets).toBeCloseTo(13544.9407901184, 4);
+    expect(a.lifeNet).toBeCloseTo(5297.375649082209, 4);
     expect(a.minMonth).toBe("2035-01");
     expect(a.firstNegative).toBeNull();
     expect(b.gapMonths).toBe(48);
@@ -49,16 +50,15 @@ describe("household simulator", () => {
       job: false,
       homeYear: 2027,
       homeMonth: 11,
-      homeOverride: 62.24,
     };
     const r1a = calculate(example, earlyHome);
     expect(r1a.firstNegative).toBe("2031-07");
-    expect(r1a.minAssets).toBeCloseTo(-2733.99067895279, 4);
+    expect(r1a.minAssets).toBeCloseTo(-2801.80668876538, 4);
 
     const extendedWork = { ...example, spouseEnd: "2033-12" };
     const r1e = calculate(extendedWork, earlyHome);
     expect(r1e.firstNegative).toBeNull();
-    expect(r1e.minAssets).toBeCloseTo(1841.2929087684, 4);
+    expect(r1e.minAssets).toBeCloseTo(1822.86449932806, 4);
   });
   it("supports zero loan and zero-interest loans", () => {
     expect(installment(1200, 0, 120)).toBe(10);

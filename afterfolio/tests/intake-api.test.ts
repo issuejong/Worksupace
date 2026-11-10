@@ -37,9 +37,10 @@ it("renders the engine's exact metrics even when the explanation model sends a w
   );
   expect(response.status).toBe(200);
   const { answer } = await response.json();
-  expect(answer).toContain("36,165,519원");
+  expect(answer).toContain("35,586,297원");
   expect(answer).toContain("2031년 2월");
-  expect(answer).toContain("213,010,062원 부족");
+  expect(answer).toContain("214,488,647원 부족");
+  expect(answer).toContain("135,449,408원");
   expect(answer).not.toContain("361.7만 원");
 });
 it("collects partial input without requiring a financial result", async () => {
