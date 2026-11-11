@@ -288,9 +288,15 @@ export const inputLookups: Partial<Record<keyof Household, InputLookup>> = {
 };
 
 const unknownAmount =
-  /^(?:(?:아직|잘|정확히|정확하게|금액을|얼마인지)*모(?:름|르겠(?:어|어요|습니다|는데요)|르겠음|릅니다)|(?:아직|잘|정확히|금액을|얼마인지)*몰라(?:요|서요)?|(?:아직)?알수없(?:어요|습니다)|(?:아직)?확인(?:을)?못했(?:어요|습니다)|기억(?:이)?안(?:나요|납니다)|어디서확인(?:하나요|해요|할수있나요)|확인(?:하는)?(?:방법|사이트)(?:를)?알려(?:줘|주세요))$/;
+  /^(?:(?:아직|잘|정확히|정확하게|금액을|얼마인지)*모(?:름|르겠(?:어|어요|습니다|는데요)|르겠음|릅니다)|(?:아직|잘|정확히|금액을|얼마인지)*몰라(?:요|서요)?|(?:아직)?알수없(?:어요|습니다)|(?:아직)?확인(?:을)?못했(?:어요|습니다)|기억(?:이)?안(?:나요|납니다))$/;
+const lookupRequest =
+  /^(?:어디서확인(?:하나요|해요|할수있나요)|확인(?:하는)?(?:방법|사이트)(?:를)?알려(?:줘|주세요))$/;
 const skipRequest =
-  /^(?:건너뛰(?:기|어줘|어주세요|겠습니다|게요)|건너뛸게요|패스(?:할게요)?)$/;
+  /^(?:건너뛰(?:기|어(?:요|줘|주세요)?|겠습니다|게요)|건너뛸게요?|패스(?:할게요)?)$/;
+const isInputAction = (reply: string) =>
+  unknownAmount.test(reply) ||
+  lookupRequest.test(reply) ||
+  skipRequest.test(reply);
 
 const amountNames: [SkippableMoneyField, RegExp][] = [
   [
@@ -323,14 +329,14 @@ export function resolveIntakeInputAction(
   let reply = text;
   let target: keyof Household | undefined;
   const next = nextIntakeField(h, s);
-  if (unknownAmount.test(text) || skipRequest.test(text)) {
+  if (isInputAction(text)) {
     target = next;
   } else {
     for (const [field, name] of amountNames) {
       const match = name.exec(text);
       if (!match) continue;
       reply = text.slice(match[0].length).replace(/^(?:은|는|을|를|이|가)/, "");
-      if (unknownAmount.test(reply) || skipRequest.test(reply)) {
+      if (isInputAction(reply)) {
         target = field;
         break;
       }
@@ -342,18 +348,14 @@ export function resolveIntakeInputAction(
     }
   }
   const patch: Partial<Household> = {};
-  if (unknownAmount.test(reply)) {
-    const lookup = target ? inputLookups[target] : undefined;
-    const link = lookup?.link;
-    return {
-      patch,
-      skipped: [],
-      notice: lookup
-        ? `${lookup.description}${link ? `\n\n[${link.label}](${link.href})` : ""}${isSkippableMoneyField(target) ? `\n\n확인한 금액을 알려주세요. 나중에 확인하고 싶다면 ‘${inputLabels[target]} 건너뛰기’라고 말해 주세요.` : ""}`
-        : "확인하고 싶은 항목을 알려주세요.",
-    };
-  }
+  const unknown = unknownAmount.test(reply);
+  const lookup = target ? inputLookups[target] : undefined;
+  const guidance = lookup
+    ? lookup.description +
+      (lookup.link ? `\n\n[${lookup.link.label}](${lookup.link.href})` : "")
+    : "";
   if (
+    !lookupRequest.test(reply) &&
     isSkippableMoneyField(target) &&
     !(
       h.hasSpouse === false &&
@@ -365,9 +367,16 @@ export function resolveIntakeInputAction(
     return {
       patch,
       skipped: [target],
-      notice: `‘${inputLabels[target]}’ 항목을 건너뛰어 0원으로 정리했어요. 나중에 실제 금액을 입력할 수 있어요.`,
+      notice: [
+        `‘${inputLabels[target]}’은 일단 0원으로 두고 넘어갈게요. 나중에 실제 금액을 입력할 수 있어요.`,
+        unknown ? guidance : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
     };
   }
+  if (guidance && (unknown || lookupRequest.test(reply)))
+    return { patch, skipped: [], notice: guidance };
   return {
     patch,
     skipped: [],

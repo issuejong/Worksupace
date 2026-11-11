@@ -432,7 +432,7 @@ it("uses zero for an explicit skip without a model and proceeds to the next ques
   expect(create).not.toHaveBeenCalled();
 });
 
-it("provides official lookup guidance for unknown amounts and only skips when requested", async () => {
+it("skips unknown amounts with lookup guidance and keeps required dates", async () => {
   vi.stubEnv("AI_ACCESS_TOKEN", "");
   const collect = async (
     question: string,
@@ -453,7 +453,10 @@ it("provides official lookup guidance for unknown amounts and only skips when re
     return response.json();
   };
   const unknownPension = await collect("국민연금은 아직 몰라요", {});
-  expect(unknownPension.intake.patch).toEqual({});
+  expect(unknownPension.intake).toEqual({
+    patch: { pension: 0 },
+    skipped: ["pension"],
+  });
   expect(unknownPension.answer).toContain("https://www.nps.or.kr/");
   const household = {
     birth: "1970-01",
@@ -461,9 +464,20 @@ it("provides official lookup guidance for unknown amounts and only skips when re
     hasSpouse: false,
     income: 400,
   };
-  const unknownAssets = await collect("잘 모르겠어요", household);
-  expect(unknownAssets.intake.patch).toEqual({});
-  expect(unknownAssets.answer).toContain("https://www.payinfo.or.kr/");
+  for (const reply of ["몰라", "잘 모르겠어요", "건너뛰어", "건너뛰기"]) {
+    const skippedAssets = await collect(reply, household);
+    expect(skippedAssets.intake).toEqual({
+      patch: { assets: 0 },
+      skipped: ["assets"],
+    });
+    expect(skippedAssets.answer).toContain("주택담보대출 잔액");
+    expect(skippedAssets.answer).not.toContain("금융자산은 얼마인가요?");
+    if (reply === "몰라")
+      expect(skippedAssets.answer).toContain("https://www.payinfo.or.kr/");
+  }
+  const lookup = await collect("금융자산 어디서 확인하나요?", household);
+  expect(lookup.intake.patch).toEqual({});
+  expect(lookup.answer).toContain("https://www.payinfo.or.kr/");
   expect((await collect("국민연금 건너뛰기", {})).intake.patch).toEqual({
     pension: 0,
   });
@@ -472,6 +486,9 @@ it("provides official lookup guidance for unknown amounts and only skips when re
   expect(unknownDate.answer).toContain("은퇴 예정월");
   expect(
     (await collect("국민연금 건너뛰기", { pension: 150 })).intake.patch,
+  ).toEqual({});
+  expect(
+    (await collect("국민연금은 몰라", { pension: 150 })).intake.patch,
   ).toEqual({});
   expect(create).not.toHaveBeenCalled();
 });
