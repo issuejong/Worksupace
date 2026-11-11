@@ -354,12 +354,13 @@ function Charts({
           data={data}
           margin={{ top: 18, right: 12, bottom: 2, left: 0 }}
         >
-          <CartesianGrid vertical={false} stroke="#e2e6e8" />
+          <CartesianGrid vertical={false} stroke="var(--line)" />
           <XAxis
             dataKey="year"
             minTickGap={35}
             tickLine={false}
             axisLine={false}
+            tick={{ fill: "var(--muted)" }}
           />
           <YAxis
             width={80}
@@ -367,16 +368,22 @@ function Charts({
             tickFormatter={(v) => moneyAxis(Number(v))}
             tickLine={false}
             axisLine={false}
+            tick={{ fill: "var(--muted)" }}
           />
           <Tooltip
             formatter={(v) => money(Number(v))}
             labelFormatter={(v) => `${v}년 말`}
-            contentStyle={{ borderRadius: 12, borderColor: "var(--line)" }}
+            contentStyle={{
+              borderRadius: 12,
+              borderColor: "var(--line)",
+              backgroundColor: "var(--flow-surface)",
+            }}
+            itemStyle={{ color: "var(--ink)" }}
           />
-          <ReferenceLine y={0} stroke="#a44d3e" />
+          <ReferenceLine y={0} stroke="var(--error-ink)" />
           <ReferenceLine
             y={after.reserve}
-            stroke="#967130"
+            stroke="var(--warning-ink)"
             strokeDasharray="3 5"
           />
           {which !== "after" && (
@@ -510,7 +517,6 @@ function PlanningGuide({
       <section className="yp-guide-demo" aria-label="권 부장 부부 화면 체험">
         <header>
           <h3>{["은퇴 계획 상담", "자금 전망", "은퇴 계획"][step]}</h3>
-          <p>권 부장 부부 예시</p>
         </header>
         {step === 0 ? (
           <div className="yp-guide-demo-body">
@@ -600,11 +606,41 @@ function PlanningGuide({
   );
 }
 
+type Theme = "light" | "dark";
+const themeKey = "afterfolio:theme";
+
 export default function Planner() {
   const pathname = usePathname();
   const isExample = pathname === "/dashboard/example";
   const [chatOpen, setChatOpen] = useState(false);
   const [accessToken, setAccessToken] = useState("");
+  const [theme, setTheme] = useState<Theme>("light");
+  useEffect(() => {
+    const preference = window.matchMedia("(prefers-color-scheme: dark)");
+    let saved: string | null = null;
+    try {
+      saved = window.localStorage.getItem(themeKey);
+    } catch {
+      // A blocked storage setting can still use the device preference.
+    }
+    setTheme(
+      saved === "dark" || saved === "light"
+        ? saved
+        : preference.matches
+          ? "dark"
+          : "light",
+    );
+  }, []);
+
+  function toggleTheme() {
+    const next = theme === "light" ? "dark" : "light";
+    setTheme(next);
+    try {
+      window.localStorage.setItem(themeKey, next);
+    } catch {
+      // Keep the selection for the current session.
+    }
+  }
   return (
     <PlannerWorkspace
       key={isExample ? "example" : "personal"}
@@ -614,6 +650,8 @@ export default function Planner() {
       setChatOpen={setChatOpen}
       accessToken={accessToken}
       setAccessToken={setAccessToken}
+      theme={theme}
+      onToggleTheme={toggleTheme}
     />
   );
 }
@@ -625,6 +663,8 @@ function PlannerWorkspace({
   setChatOpen,
   accessToken,
   setAccessToken,
+  theme,
+  onToggleTheme,
 }: {
   pathname: string;
   isExample: boolean;
@@ -632,6 +672,8 @@ function PlannerWorkspace({
   setChatOpen: (open: boolean) => void;
   accessToken: string;
   setAccessToken: (token: string) => void;
+  theme: Theme;
+  onToggleTheme: () => void;
 }) {
   const [h, setHousehold] = useState<Household>(() =>
       isExample ? { ...example } : blankHousehold(),
@@ -1251,6 +1293,7 @@ function PlannerWorkspace({
   return (
     <div
       className={`yp-app yp-flow yp-view-${activeView} ${chatOpen && !inlineChat ? "yp-chat-visible" : ""}`}
+      data-theme={theme}
     >
       <a className="yp-skip" href="#yp-main">
         본문으로 건너뛰기
@@ -1263,19 +1306,53 @@ function PlannerWorkspace({
             <path fill="currentColor" d="M8 17h20l6 25H23l-2-7h-6l-2 7H2Z" />
             <path fill="#a2b9d8" d="M18 17h10l6 25H23l-2-7h-3Z" />
             <path fill="#789aca" d="m3 15 15-3 15 3v4l-15-2-15 2Z" />
-            <path fill="#f5f2e7" d="m18 23 3 7h-6Z" />
+            <path fill="var(--coast-paper)" d="m18 23 3 7h-6Z" />
           </svg>
           afterfolio
         </Link>
-        {activeView !== "home" && (
+        <div className="yp-header-actions">
           <button
-            className="yp-header-action"
+            className="yp-theme-toggle"
             type="button"
-            onClick={() => goTo("home")}
+            aria-label={
+              theme === "light" ? "다크 모드로 전환" : "라이트 모드로 전환"
+            }
+            title={
+              theme === "light" ? "다크 모드로 전환" : "라이트 모드로 전환"
+            }
+            onClick={onToggleTheme}
           >
-            처음으로
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              {theme === "light" ? (
+                <path d="M20.8 14.2A9 9 0 0 1 9.8 3.2a9 9 0 1 0 11 11Z" />
+              ) : (
+                <>
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4m0-14.2-1.4 1.4M6.3 17.7l-1.4 1.4" />
+                </>
+              )}
+            </svg>
           </button>
-        )}
+          {activeView !== "home" && (
+            <button
+              className="yp-header-action"
+              type="button"
+              onClick={() => goTo("home")}
+            >
+              처음으로
+            </button>
+          )}
+        </div>
       </header>
       <main className="yp-main" id="yp-main" tabIndex={-1} ref={main}>
         {activeView === "home" ? (

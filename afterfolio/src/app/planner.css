@@ -32,7 +32,7 @@
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 10px 15px;
-  background: white;
+  background: var(--flow-surface, white);
   font-weight: 600;
   line-height: 1.5;
   transition:
@@ -41,13 +41,13 @@
 }
 .yp-app button:hover:not(:disabled),
 .yp-upload:hover {
-  background: #eceff0;
-  border-color: #bdc6c8;
+  background: var(--flow-quiet, #eceff0);
+  border-color: var(--line);
 }
 .yp-app button.yp-primary {
-  background: var(--accent);
+  background: var(--action-fill, var(--accent));
   color: white;
-  border-color: var(--accent);
+  border-color: var(--action-fill, var(--accent));
 }
 .yp-app button.yp-primary:hover:not(:disabled) {
   background: var(--action-hover);
@@ -120,9 +120,9 @@
   color: var(--accent);
 }
 .yp-example-info {
-  background: #fff;
-  border: 1px solid #d6d6d6;
-  color: #242424;
+  background: var(--flow-surface, #fff);
+  border: 1px solid var(--line);
+  color: var(--ink);
   border-radius: 15px;
   padding: 22px 24px;
   margin-bottom: 20px;
@@ -130,7 +130,7 @@
 .yp-example-info .yp-eyebrow,
 .yp-example-info .yp-note,
 .yp-example-info dt {
-  color: #606060;
+  color: var(--muted);
 }
 .yp-example-info > p {
   font-size: 14px;
@@ -167,8 +167,8 @@
   justify-content: space-between;
   gap: 12px;
   padding: 9px 16px;
-  background: #e5eae8;
-  border: 1px solid #d1e3d1;
+  background: var(--flow-quiet, #e5eae8);
+  border: 1px solid var(--line);
   border-radius: 12px;
   margin: 0 0 16px;
   line-height: 1.8;
@@ -200,7 +200,7 @@
   grid-template-columns: 290px minmax(0, 1fr);
 }
 .yp-card {
-  background: #fff;
+  background: var(--flow-surface, #fff);
   border: 1px solid var(--line);
   border-radius: 18px;
   padding: 24px;
@@ -311,8 +311,8 @@ details[open] > .yp-detail-summary .yp-detail-close {
   display: inline;
 }
 details[open] > .yp-detail-summary .yp-detail-action {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--action-fill, var(--accent));
+  border-color: var(--action-fill, var(--accent));
   color: #fff;
 }
 .yp-field {
@@ -326,9 +326,9 @@ details[open] > .yp-detail-summary .yp-detail-action {
 .yp-input {
   display: flex;
   align-items: center;
-  border: 1px solid #cbd1d4;
+  border: 1px solid var(--line);
   border-radius: 9px;
-  background: white;
+  background: var(--flow-surface, white);
   overflow: hidden;
   min-height: 46px;
 }
@@ -360,8 +360,8 @@ details[open] > .yp-detail-summary .yp-detail-action {
   width: 100%;
   min-width: 0;
   min-height: 46px;
-  background: white;
-  border: 1px solid #cbd1d4;
+  background: var(--flow-surface, white);
+  border: 1px solid var(--line);
   border-radius: 9px;
   padding: 10px 12px;
   font-size: 16px;
@@ -520,10 +520,10 @@ details[open] > .yp-detail-summary .yp-detail-action {
   font-weight: 700;
 }
 .yp-legend span:nth-child(3) {
-  color: #896721;
+  color: var(--warning-ink);
 }
 .yp-legend span:nth-child(4) {
-  color: #9d473b;
+  color: var(--error-ink);
 }
 .yp-plot {
   height: 300px;
@@ -566,7 +566,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
 .yp-app thead th {
   color: var(--muted);
   font-size: 12px;
-  background: #f1f3f4;
+  background: var(--flow-quiet, #f1f3f4);
 }
 .yp-app tbody td:last-child {
   font-weight: 600;
@@ -590,7 +590,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
   line-height: 1.7;
 }
 .yp-plan-summary > span.selected {
-  background: #e5eae8;
+  background: var(--flow-quiet, #e5eae8);
   color: var(--accent);
 }
 .yp-plan-summary + .yp-note {
@@ -614,7 +614,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
 .yp-plan-option {
   border: 1px solid var(--line);
   border-radius: 13px;
-  background: #fff;
+  background: var(--flow-surface, #fff);
   overflow: hidden;
 }
 .yp-plan-option.chosen {
@@ -672,11 +672,11 @@ details[open] > .yp-detail-summary .yp-detail-action {
   margin-top: 24px;
 }
 .yp-error {
-  color: #a04032 !important;
+  color: var(--error-ink, #a04032) !important;
 }
 .yp-warning {
-  color: #805724;
-  background: #fff3d9;
+  color: var(--warning-ink, #805724);
+  background: var(--warning-surface, #fff3d9);
   padding: 10px 12px;
   border-radius: 8px;
   font-size: 13px;
@@ -725,7 +725,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
   padding: 0;
   border-radius: 50%;
   border: 1px solid #ffffff40;
-  background: var(--accent);
+  background: var(--action-fill, var(--accent));
   color: #fff;
   box-shadow: 0 6px 22px #17332e35;
 }
@@ -832,7 +832,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
 .yp-composer {
   padding: 18px;
   border-top: 1px solid var(--line);
-  background: #fff;
+  background: var(--flow-surface, #fff);
   flex-shrink: 0;
 }
 .yp-composer > label {
@@ -847,8 +847,8 @@ details[open] > .yp-detail-summary .yp-detail-action {
   min-height: 90px;
   max-height: 160px;
   resize: vertical;
-  border: 1px solid #cbd1d4;
-  background: white;
+  border: 1px solid var(--line);
+  background: var(--flow-surface, white);
   border-radius: 11px;
   line-height: 1.7;
   font-size: 15px;
@@ -874,12 +874,12 @@ details[open] > .yp-detail-summary .yp-detail-action {
   margin-top: 10px !important;
 }
 .yp-agent-error {
-  border: 1px solid #edcabc;
-  background: #fcf0e9;
+  border: 1px solid var(--line);
+  background: var(--error-surface, #fcf0e9);
   border-radius: 10px;
   padding: 12px;
   margin-top: 16px;
-  color: #93412f;
+  color: var(--error-ink, #93412f);
 }
 .yp-agent-error p {
   white-space: pre-line;
@@ -935,7 +935,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
   gap: 10px;
   font-size: 12px;
   padding: 10px 18px;
-  background: #e5eae8;
+  background: var(--flow-quiet, #e5eae8);
   flex-shrink: 0;
 }
 .yp-undo button {
@@ -990,7 +990,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
   left: 20px;
   top: 20px;
   padding: 12px;
-  background: white;
+  background: var(--flow-surface, white);
   z-index: 100;
 }
 @media (min-width: 1101px) and (max-width: 1499px) {
@@ -1322,10 +1322,10 @@ details[open] > .yp-detail-summary .yp-detail-action {
 
 .yp-app input[type="password"] {
   width: 100%;
-  border: 1px solid #cbd1d4;
+  border: 1px solid var(--line);
   border-radius: 9px;
   padding: 12px;
-  background: white;
+  background: var(--flow-surface, white);
   min-height: 44px;
 }
 
@@ -1366,19 +1366,35 @@ details[open] > .yp-detail-summary .yp-detail-action {
 
 /* Afterfolio's desktop and mobile prototype layouts. */
 .yp-flow {
-  --coast-ink: #102b49;
+  color-scheme: light;
+  --coast-ink: #173956;
   --coast-paper: #f5f2e7;
   --coast-gold: #c8ac76;
+  --sky-mid: #eaf4ef;
+  --sky-low: #c8e3e6;
+  --horizon: #e1f1ef;
+  --sea-start: #93c4d1;
+  --sea-mid: #4f91a8;
+  --sea-base: #6aa4b5;
+  --coast-end: #e2f1f3;
+  --sea-shade: transparent;
+  --coast-sun: #ddc999;
+  --coast-sun-glow: rgb(223 202 150 / 50%);
   --ink: var(--coast-ink);
   --muted: #425a6c;
-  --accent: var(--coast-ink);
-  --action-hover: #203f60;
-  --action-active: #0a223b;
+  --accent: #24577b;
+  --action-fill: #24577b;
+  --action-hover: #1d496b;
+  --action-active: #163b58;
   --paper: #f5f9fa;
-  --line: #cadce3;
-  --selection-surface: #e0eef3;
+  --line: #c8dee6;
+  --selection-surface: #e1f0f6;
   --baseline: #526d85;
-  --plot-plan: #24667d;
+  --plot-plan: #28738e;
+  --error-ink: #a23d32;
+  --error-surface: #fcf0e9;
+  --warning-ink: #805724;
+  --warning-surface: #fff3d9;
   --flow-gutter: clamp(20px, 3.53vw, 48px);
   --flow-header-height: 4rem;
   --flow-surface: #fff;
@@ -1388,6 +1404,38 @@ details[open] > .yp-detail-summary .yp-detail-action {
   background: var(--paper);
   color: var(--ink);
   font-size: 18px;
+}
+.yp-flow[data-theme="dark"] {
+  color-scheme: dark;
+  --coast-ink: #edf6fc;
+  --coast-paper: #172d3d;
+  --coast-gold: #a58c61;
+  --sky-mid: #1b3449;
+  --sky-low: #264f67;
+  --horizon: #416f86;
+  --sea-start: #27556c;
+  --sea-mid: #1e4055;
+  --sea-base: #294e63;
+  --coast-end: #142632;
+  --sea-shade: rgb(5 24 41 / 61%);
+  --coast-sun: #bba36e;
+  --coast-sun-glow: rgb(220 188 122 / 20%);
+  --muted: #b0c6d5;
+  --accent: #95cceb;
+  --action-fill: #296187;
+  --action-hover: #327199;
+  --action-active: #224f71;
+  --paper: #142632;
+  --line: #395467;
+  --selection-surface: #29485b;
+  --baseline: #9badc5;
+  --plot-plan: #6ec6e6;
+  --flow-surface: #1b3343;
+  --flow-quiet: #223f52;
+  --error-ink: #ffa89a;
+  --error-surface: #492e32;
+  --warning-ink: #f4d18e;
+  --warning-surface: #433724;
 }
 .yp-flow h1 {
   font-size: clamp(32px, 3.25vw, 44px);
@@ -1432,6 +1480,20 @@ details[open] > .yp-detail-summary .yp-detail-action {
   width: clamp(24px, 3vw, 32px);
   height: auto;
 }
+.yp-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.yp-flow .yp-theme-toggle {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--coast-ink);
+}
 .yp-flow .yp-header-action {
   padding: 8px 12px;
   border-color: transparent;
@@ -1462,7 +1524,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
   color: var(--muted);
 }
 .yp-flow .yp-card {
-  background: #fff;
+  background: var(--flow-surface, #fff);
   border-radius: 10px;
 }
 .yp-flow button,
@@ -1568,7 +1630,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
 }
 .yp-flow .yp-user-message {
   margin: 16px 0 16px auto !important;
-  background: var(--accent);
+  background: var(--action-fill, var(--accent));
   color: #fff;
 }
 .yp-flow .yp-user-message > strong,
@@ -1587,7 +1649,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
   font-size: 17px;
 }
 .yp-flow .yp-composer {
-  background: #fff;
+  background: var(--flow-surface, #fff);
 }
 .yp-flow .yp-composer-actions small {
   font-size: 14px;
@@ -1640,7 +1702,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
   width: 100%;
   max-width: none;
   padding: 0;
-  background: #d7e9ec;
+  background: var(--coast-end);
 }
 .yp-flow.yp-view-home .yp-header {
   border-bottom: 0;
@@ -1659,7 +1721,11 @@ details[open] > .yp-detail-summary .yp-detail-action {
   justify-items: center;
   gap: clamp(16px, 2.5vw, 32px);
   padding: clamp(68px, 12svh, 144px) var(--flow-gutter) 32px;
-  background: linear-gradient(var(--coast-paper), #e7efe8 64%, #b9d9dc);
+  background: linear-gradient(
+    var(--coast-paper),
+    var(--sky-mid) 64%,
+    var(--sky-low)
+  );
 }
 .yp-landing-sea {
   display: grid;
@@ -1668,11 +1734,13 @@ details[open] > .yp-detail-summary .yp-detail-action {
   justify-items: center;
   gap: clamp(16px, 3vw, 36px);
   padding: 30px var(--flow-gutter) 132px;
-  border-top: 3px solid #deece9;
+  border-top: 3px solid var(--horizon);
   background:
+    linear-gradient(var(--sea-shade), var(--sea-shade)) left bottom / 100%
+      min(100%, 320px) no-repeat,
     url("/afterfolio-coast.svg") left bottom / max(100%, 760px) min(100%, 320px)
       no-repeat,
-    linear-gradient(#77b0bd, #397c96 72%, #5793a4);
+    linear-gradient(var(--sea-start), var(--sea-mid) 72%, var(--sea-base));
 }
 .yp-landing-sky::before {
   content: "";
@@ -1683,8 +1751,8 @@ details[open] > .yp-detail-summary .yp-detail-action {
   width: clamp(80px, 10.25vw, 174px);
   aspect-ratio: 1;
   border-radius: 50%;
-  background: #ddc999;
-  box-shadow: 0 0 44px rgb(223 202 150 / 50%);
+  background: var(--coast-sun);
+  box-shadow: 0 0 44px var(--coast-sun-glow);
 }
 .yp-flow .yp-landing h1 {
   max-width: 64rem;
@@ -1712,9 +1780,9 @@ details[open] > .yp-detail-summary .yp-detail-action {
   width: min(44%, 152px);
   min-height: 52px;
   padding: 8px 16px;
-  border: 1px solid #afbec8;
+  border: 1px solid var(--line);
   border-radius: 12px;
-  background: #fff;
+  background: var(--flow-surface, #fff);
   color: var(--coast-ink);
   font-size: 1.0625rem;
   font-weight: 700;
@@ -1722,15 +1790,15 @@ details[open] > .yp-detail-summary .yp-detail-action {
   word-break: keep-all;
 }
 .yp-flow .yp-landing-actions a:hover {
-  background: #f0f5f8;
+  background: var(--flow-quiet);
 }
 .yp-flow .yp-landing-actions button.yp-primary {
-  border-color: var(--coast-ink);
-  background: var(--coast-ink);
+  border-color: var(--action-fill);
+  background: var(--action-fill);
   color: #fff;
 }
 .yp-flow .yp-landing-actions button.yp-primary:hover:not(:disabled) {
-  background: #203f60;
+  background: var(--action-hover);
 }
 .yp-flow .yp-landing-copy .yp-text-button {
   border-color: transparent;
@@ -1742,7 +1810,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
   justify-items: center;
   gap: 40px;
   padding: 56px var(--flow-gutter) 48px;
-  background: linear-gradient(#5793a4, #d7e9ec);
+  background: linear-gradient(var(--sea-base), var(--coast-end));
 }
 .yp-view-home #yp-guide {
   scroll-margin-top: calc(var(--flow-header-height) + 20px);
@@ -1753,11 +1821,11 @@ details[open] > .yp-detail-summary .yp-detail-action {
 }
 .yp-flow .yp-chat-launcher[aria-expanded="false"] {
   border-color: var(--coast-gold);
-  background: #fffdf4;
+  background: var(--coast-paper);
   color: var(--coast-ink);
 }
 .yp-flow .yp-chat-launcher[aria-expanded="false"]:hover {
-  background: #f4ead4;
+  background: var(--flow-quiet);
 }
 .yp-coast-chat-icon {
   width: 76%;
@@ -1767,9 +1835,9 @@ details[open] > .yp-detail-summary .yp-detail-action {
   right: 0;
   bottom: calc(100% + 10px);
   padding: 9px 14px;
-  border: 1px solid #d7dce1;
+  border: 1px solid var(--line);
   border-radius: 100px;
-  background: #fff;
+  background: var(--flow-surface, #fff);
   color: var(--coast-ink);
   font-size: 0.9375rem;
   white-space: nowrap;
@@ -1944,6 +2012,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
     padding-top: 24px;
     padding-bottom: 116px;
     background-size:
+      100% min(76%, 226px),
       820px min(76%, 226px),
       100% 100%;
   }
@@ -2089,7 +2158,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
   }
 }
 .yp-result-summary {
-  background: #fff;
+  background: var(--flow-surface, #fff);
   border: 1px solid var(--line);
   border-radius: 20px;
   padding: 24px 0;
@@ -2126,7 +2195,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
   color: var(--muted);
 }
 .yp-metric-warning dd:not(.yp-metric-detail) {
-  color: #964335;
+  color: var(--error-ink);
 }
 .yp-flow .yp-plot {
   margin-left: 0;
@@ -2149,7 +2218,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
 }
 .yp-flow .yp-detail-action,
 .yp-flow details[open] > .yp-detail-summary .yp-detail-action {
-  background: #fff;
+  background: var(--flow-surface, #fff);
   border-color: var(--line);
   color: var(--muted);
 }
@@ -2159,7 +2228,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
 }
 .yp-flow .yp-plan-option,
 .yp-flow .yp-plan-option.chosen {
-  background: #fff;
+  background: var(--flow-surface, #fff);
   border: 0;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
@@ -2235,7 +2304,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
 }
 .yp-flow .yp-reset-button {
   padding: 10px 20px;
-  background: #fff;
+  background: var(--flow-surface, #fff);
   color: var(--ink);
 }
 .yp-assumptions {
@@ -2413,7 +2482,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
   margin-top: 8px;
   font-size: 16px;
   font-weight: 400;
-  color: #606060;
+  color: var(--muted);
   line-height: 1.6;
 }
 .yp-comparison-actions {
@@ -2468,7 +2537,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
   }
   .yp-result-comparison td::before {
     content: attr(data-label);
-    color: #606060;
+    color: var(--muted);
     font-size: 16px;
     font-weight: 400;
   }
@@ -2592,7 +2661,12 @@ details[open] > .yp-detail-summary .yp-detail-action {
   margin-bottom: 24px;
   border: 1px solid var(--line);
   border-radius: var(--flow-radius);
-  background: linear-gradient(115deg, var(--coast-paper), #e7f1f1 68%, #d4e8ed);
+  background: linear-gradient(
+    115deg,
+    var(--coast-paper),
+    var(--sky-mid) 68%,
+    var(--coast-end)
+  );
 }
 .yp-flow .yp-intro::before,
 .yp-flow .yp-intro::after {
@@ -2840,13 +2914,13 @@ details[open] > .yp-detail-summary .yp-detail-action {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--flow-surface, #fff);
   box-shadow: 0 1px 3px #17272040;
   transition: transform 150ms ease-out;
 }
 .yp-flow .yp-check-control input:checked {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--action-fill, var(--accent));
+  border-color: var(--action-fill, var(--accent));
 }
 .yp-flow .yp-check-control input:checked::before {
   transform: translateX(20px);
@@ -2902,6 +2976,11 @@ details[open] > .yp-detail-summary .yp-detail-action {
 }
 .yp-flow .yp-composer textarea:focus {
   background: var(--flow-surface);
+}
+.yp-flow textarea::placeholder,
+.yp-flow input::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 .yp-flow .yp-agent {
   border-radius: var(--flow-radius);
@@ -2995,7 +3074,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
     backdrop-filter: none;
   }
   .yp-result-summary {
-    background: white;
+    background: var(--flow-surface, white);
     color: black;
     --line: #ccc;
   }
