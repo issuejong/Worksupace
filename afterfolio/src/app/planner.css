@@ -1365,13 +1365,23 @@ details[open] > .yp-detail-summary .yp-detail-action {
 
 /* Afterfolio's desktop and mobile prototype layouts. */
 .yp-flow {
-  --selection-surface: #e8edf5;
-  --baseline: #566d86;
-  --plot-plan: var(--accent);
+  --coast-ink: #102b49;
+  --coast-paper: #f5f2e7;
+  --coast-gold: #c8ac76;
+  --ink: var(--coast-ink);
+  --muted: #425a6c;
+  --accent: var(--coast-ink);
+  --action-hover: #203f60;
+  --action-active: #0a223b;
+  --paper: #f5f9fa;
+  --line: #cadce3;
+  --selection-surface: #e0eef3;
+  --baseline: #526d85;
+  --plot-plan: #24667d;
   --flow-gutter: clamp(20px, 3.53vw, 48px);
   --flow-header-height: 4rem;
   --flow-surface: #fff;
-  --flow-quiet: #edf0f1;
+  --flow-quiet: #eaf3f6;
   --flow-radius: 1.25rem;
   --flow-panel-pad: clamp(16px, 3vw, 32px);
   background: var(--paper);
@@ -1401,21 +1411,25 @@ details[open] > .yp-detail-summary .yp-detail-action {
   height: auto;
   min-height: var(--flow-header-height);
   padding: 8px max(var(--flow-gutter), calc((100% - 1264px) / 2));
-  background: var(--paper);
+  background: var(--coast-paper);
   border-bottom: 1px solid var(--line);
 }
-@supports (backdrop-filter: blur(16px)) {
-  .yp-flow .yp-header {
-    background: rgb(255 255 255 / 86%);
-    backdrop-filter: blur(16px) saturate(105%);
-  }
-}
 .yp-flow .yp-brand {
-  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: clamp(6px, 1vw, 10px);
+  color: var(--coast-ink);
   font-family: system-ui, sans-serif;
-  font-size: 1.55rem;
-  font-weight: 680;
-  letter-spacing: -0.045em;
+  font-size: clamp(1.25rem, 3vw, 2.125rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  min-height: 44px;
+}
+.yp-brand-mark {
+  width: clamp(24px, 3vw, 32px);
+  height: auto;
 }
 .yp-flow .yp-header-action {
   padding: 8px 12px;
@@ -1584,9 +1598,6 @@ details[open] > .yp-detail-summary .yp-detail-action {
 }
 
 @media (max-width: 600px) {
-  .yp-flow .yp-brand {
-    font-size: 23px;
-  }
   .yp-flow .yp-main {
     padding-top: 24px;
   }
@@ -1623,133 +1634,319 @@ details[open] > .yp-detail-summary .yp-detail-action {
   }
 }
 
-/* A clear first action, followed by a real example from the calculator. */
-.yp-landing {
-  display: grid;
-  justify-items: center;
-  gap: clamp(36px, 5vw, 64px);
-  padding-block: clamp(32px, 5vw, 64px) 48px;
+/* Coastal artwork and the controls on the first screen. */
+.yp-flow.yp-view-home .yp-main {
+  width: 100%;
+  max-width: none;
+  padding: 0;
+}
+.yp-flow.yp-view-home .yp-header {
+  border-bottom: 0;
 }
 .yp-landing-copy {
+  position: relative;
+  isolation: isolate;
   display: grid;
   justify-items: center;
-  gap: 24px;
+  align-content: start;
+  gap: clamp(18px, 3.25vw, 44px);
+  min-height: max(620px, calc(100svh - var(--flow-header-height)));
+  padding: clamp(78px, 14svh, 168px) var(--flow-gutter) 172px;
   text-align: center;
+  background:
+    url("/afterfolio-coast.svg") left bottom / max(100%, 760px) 37% no-repeat,
+    linear-gradient(
+      to bottom,
+      var(--coast-paper) 0%,
+      #e7efe8 34%,
+      #b9d9dc 54%,
+      #deece9 54% 54.5%,
+      #77b0bd 54.5%,
+      #397c96 80%
+    );
+  color: var(--coast-ink);
+}
+.yp-landing-copy::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 16%;
+  right: clamp(36px, 10vw, 210px);
+  width: clamp(80px, 10.25vw, 174px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #ddc999;
+  box-shadow: 0 0 44px rgb(223 202 150 / 50%);
 }
 .yp-flow .yp-landing h1 {
-  font-size: clamp(2rem, 5.3vw, 4.5rem);
-  line-height: 1.19;
+  max-width: 64rem;
+  font-size: clamp(2rem, 5.25vw, 5rem);
+  font-weight: 780;
+  line-height: 1.33;
   letter-spacing: -0.045em;
 }
 .yp-landing-copy > p {
-  max-width: 37rem;
-  color: var(--muted);
-  font-size: clamp(1.0625rem, 2vw, 1.25rem);
-  line-height: 1.75;
-  text-wrap: pretty;
+  max-width: 35rem;
+  font-size: clamp(1.0625rem, 2vw, 1.375rem);
+  line-height: 1.65;
+  text-wrap: balance;
   word-break: keep-all;
 }
 .yp-landing-actions {
   display: flex;
-  flex-wrap: wrap;
   justify-content: center;
   gap: 12px;
+  width: 100%;
 }
-.yp-flow .yp-landing-actions button {
-  min-height: 56px;
-  border-radius: 100px;
-  padding-inline: 24px;
-  font-weight: 600;
+.yp-flow .yp-landing-actions :is(a, button) {
+  display: grid;
+  place-items: center;
+  width: min(44%, 152px);
+  min-height: 52px;
+  padding: 8px 16px;
+  border: 1px solid #afbec8;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--coast-ink);
+  font-size: 1.0625rem;
+  font-weight: 700;
+  text-decoration: none;
   word-break: keep-all;
 }
-.yp-flow .yp-landing-actions button + button {
-  border-color: #b9c2c4;
-  background: var(--flow-surface);
-  color: var(--accent);
+.yp-flow .yp-landing-actions a:hover {
+  background: #f0f5f8;
 }
-.yp-example-preview,
+.yp-flow .yp-landing-actions button.yp-primary {
+  border-color: var(--coast-ink);
+  background: var(--coast-ink);
+  color: #fff;
+}
+.yp-flow .yp-landing-actions button.yp-primary:hover:not(:disabled) {
+  background: #203f60;
+}
+.yp-flow .yp-landing-copy .yp-text-button {
+  border-color: transparent;
+  background: var(--coast-paper);
+  color: var(--coast-ink);
+}
+.yp-landing-details {
+  display: grid;
+  justify-items: center;
+  gap: 40px;
+  padding: 56px var(--flow-gutter) 48px;
+}
+.yp-view-home #yp-guide {
+  scroll-margin-top: calc(var(--flow-header-height) + 20px);
+}
+.yp-view-home .yp-footer {
+  width: min(calc(100% - 2 * var(--flow-gutter)), 69rem);
+  margin-inline: auto;
+}
+.yp-flow .yp-chat-launcher[aria-expanded="false"] {
+  border-color: var(--coast-gold);
+  background: #fffdf4;
+  color: var(--coast-ink);
+}
+.yp-flow .yp-chat-launcher[aria-expanded="false"]:hover {
+  background: #f4ead4;
+}
+.yp-coast-chat-icon {
+  width: 76%;
+}
+.yp-coast-chat-hint {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  padding: 9px 14px;
+  border: 1px solid #d7dce1;
+  border-radius: 100px;
+  background: #fff;
+  color: var(--coast-ink);
+  font-size: 0.9375rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
 .yp-planning-guide {
-  width: min(100%, 60rem);
-}
-.yp-example-preview {
-  padding: clamp(24px, 4vw, 48px);
-  border-radius: clamp(20px, 3vw, 32px);
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  align-items: start;
+  gap: clamp(18px, 3vw, 32px);
+  width: min(100%, 69rem);
+  padding: clamp(16px, 3.5vw, 36px);
   border: 1px solid var(--line);
+  border-radius: var(--flow-radius);
   background: var(--flow-surface);
 }
-.yp-example-preview header p,
-.yp-example-preview .yp-preview-period,
-.yp-example-preview dt {
-  color: var(--muted);
+.yp-guide-demo {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--paper);
 }
-.yp-flow .yp-example-preview h2 {
-  margin-bottom: 8px;
-  font-size: clamp(1.375rem, 3vw, 1.875rem);
+.yp-guide-demo header {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 16px 16px 0 0;
+  background: var(--coast-paper);
+}
+.yp-guide-demo header p {
+  color: var(--muted);
+  font-size: 1rem;
+}
+.yp-guide-demo-body {
+  display: grid;
+  gap: 16px;
+  padding: 16px 18px;
+  word-break: keep-all;
+}
+.yp-guide-demo-body > button {
+  justify-self: end;
+}
+.yp-guide-reply {
+  justify-self: end;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--selection-surface);
+}
+.yp-guide-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.yp-guide-options legend {
+  font-weight: 700;
+}
+.yp-guide-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+}
+.yp-guide-options input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.yp-guide-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--flow-surface);
+}
+.yp-guide-metrics > div + div {
+  padding-inline-start: 10px;
+  border-inline-start: 1px solid var(--line);
+}
+.yp-guide-metrics dt {
+  color: var(--muted);
+  font-size: 1rem;
+}
+.yp-guide-metrics dd {
+  margin: 4px 0 0;
+  font-size: clamp(1rem, 1.75vw, 1.375rem);
+  line-height: 1.25;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.yp-guide-progress {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-block: 16px 20px;
+}
+.yp-guide-progress span {
+  height: 4px;
+  border-radius: 4px;
+  background: var(--line);
+}
+.yp-guide-progress [data-reached="true"] {
+  background: var(--plot-plan);
+}
+.yp-guide-step .yp-guide-count {
+  color: var(--accent);
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+.yp-flow .yp-guide-step h3 {
+  margin: 4px 0 8px;
+  font-size: clamp(1.25rem, 2.25vw, 1.625rem);
   line-height: 1.35;
   word-break: keep-all;
 }
-.yp-example-preview dl {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 24px 0 16px;
-  border-top: 1px solid var(--line);
-}
-.yp-example-preview dl > div {
-  padding-top: 20px;
-}
-.yp-example-preview dl > div + div {
-  padding-inline-start: 24px;
-  border-inline-start: 1px solid var(--line);
-}
-.yp-example-preview dt {
-  font-size: 1rem;
-}
-.yp-example-preview dd {
-  margin: 4px 0 0;
-  font-size: clamp(1.5rem, 3.6vw, 2.625rem);
-  line-height: 1.25;
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  text-wrap: balance;
-}
-.yp-example-preview .yp-preview-period {
-  font-size: 1rem;
-}
-.yp-planning-guide dl {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px 24px;
-  margin: 16px 0 0;
-}
-.yp-planning-guide dl > div {
-  padding-block: 16px;
-  border-top: 1px solid var(--line);
-}
-.yp-planning-guide dt {
-  font-size: 1.125rem;
-  font-weight: 600;
-}
-.yp-planning-guide dd {
-  margin: 4px 0 0;
+.yp-guide-step p {
   color: var(--muted);
   font-size: 1.0625rem;
   line-height: 1.65;
   word-break: keep-all;
 }
-@media (max-width: 600px) {
-  .yp-landing-actions {
-    display: grid;
-    width: 100%;
-  }
-  .yp-landing-copy {
-    gap: 16px;
-  }
-  .yp-example-preview dl > div + div {
-    padding-inline-start: 12px;
-  }
-  .yp-planning-guide dl {
+.yp-guide-controls {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+@media (max-width: 760px) {
+  .yp-planning-guide {
     grid-template-columns: minmax(0, 1fr);
-    gap: 0;
+  }
+  .yp-guide-demo-body {
+    padding-inline: 12px;
+  }
+  .yp-guide-controls {
+    padding-inline-end: 36px;
+  }
+}
+@media (max-width: 375px) {
+  .yp-guide-metrics {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .yp-guide-metrics > div + div {
+    padding: 8px 0 0;
+    border-inline-start: 0;
+    border-top: 1px solid var(--line);
+  }
+}
+@media (max-width: 600px) {
+  .yp-landing-copy {
+    min-height: max(560px, calc(100svh - var(--flow-header-height)));
+    padding-top: clamp(76px, 14svh, 124px);
+    padding-bottom: 142px;
+    background-size:
+      820px 31%,
+      100% 100%;
+    background-image:
+      url("/afterfolio-coast.svg"),
+      linear-gradient(
+        to bottom,
+        var(--coast-paper),
+        #e7efe8 32%,
+        #b9d9dc 65%,
+        #83bac4 65.5%,
+        #397c96 85%
+      );
+  }
+  .yp-landing-copy::before {
+    top: 5%;
+    right: 10%;
+    width: 65px;
+  }
+  .yp-coast-chat-hint {
+    display: none;
+  }
+  .yp-landing-details {
+    padding-top: 32px;
   }
 }
 
@@ -2070,7 +2267,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
   font-size: 18px;
 }
 .yp-flow .yp-user-message {
-  background: #eceff0;
+  background: var(--flow-quiet);
   border: 1px solid var(--line);
   color: var(--ink);
   font-size: 18px;
@@ -2373,7 +2570,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
 }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   .yp-flow .yp-header {
-    background: var(--paper);
+    background: var(--coast-paper);
     backdrop-filter: none;
   }
 }
@@ -2383,7 +2580,44 @@ details[open] > .yp-detail-summary .yp-detail-action {
   border-radius: var(--flow-radius);
 }
 .yp-flow .yp-intro {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: clamp(20px, 3vw, 34px) var(--flow-panel-pad);
   margin-bottom: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--flow-radius);
+  background: linear-gradient(115deg, var(--coast-paper), #e7f1f1 68%, #d4e8ed);
+}
+.yp-flow .yp-intro::before,
+.yp-flow .yp-intro::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+}
+.yp-flow .yp-intro::before {
+  right: clamp(22px, 7vw, 84px);
+  bottom: 28%;
+  width: clamp(34px, 7vw, 75px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgb(221 201 153 / 45%);
+}
+.yp-flow .yp-intro::after {
+  right: -12%;
+  bottom: -100px;
+  width: 55%;
+  height: 130px;
+  border-radius: 50%;
+  background: rgb(92 156 173 / 19%);
+  box-shadow: 0 -14px rgb(92 156 173 / 10%);
+}
+@media (max-width: 600px) {
+  .yp-flow .yp-intro::before {
+    right: 16px;
+    bottom: 18%;
+  }
 }
 .yp-flow .yp-intro h1 {
   font-size: clamp(1.875rem, 3.5vw, 2.75rem);

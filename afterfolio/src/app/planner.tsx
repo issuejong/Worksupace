@@ -444,56 +444,162 @@ function Charts({
 }
 type PlannerView = "home" | "chat" | "manual" | "result";
 
-function ExamplePreview() {
-  const { before, after } = useMemo(
-    () => ({
-      before: calculate(example, none, false),
-      after: calculate(example, adopted, true),
-    }),
-    [],
-  );
+const guideSteps = [
+  [
+    "채팅으로 은퇴 정보 입력",
+    "예시 답변을 보내면 권 부장 부부의 자금 전망을 볼 수 있어요.",
+  ],
+  [
+    "자금 전망 확인",
+    "돈이 처음 부족한 때와 가장 적게 남는 돈을 확인한 뒤, 은퇴 계획을 열어 보세요.",
+  ],
+  [
+    "은퇴 준비 방법 비교",
+    "재취업이나 주택연금을 켜고 끄면서 가장 적게 남는 돈이 어떻게 바뀌는지 확인해 보세요.",
+  ],
+];
+
+function PlanningGuide({
+  onStart,
+  onManual,
+  onExample,
+}: {
+  onStart: () => void;
+  onManual: () => void;
+  onExample: () => void;
+}) {
+  const [step, setStep] = useState(0);
+  const [demoPlan, setDemoPlan] = useState(adopted);
+  const guide = useRef<HTMLElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const before = useMemo(() => calculate(example, none, false), []);
+  const after = useMemo(() => calculate(example, demoPlan), [demoPlan]);
+  const [title, description] = guideSteps[step];
+
+  function showStep(next: number) {
+    setStep(next);
+    requestAnimationFrame(() => {
+      guide.current?.scrollIntoView({ block: "start" });
+      heading.current?.focus({ preventScroll: true });
+    });
+  }
 
   return (
-    <section className="yp-example-preview" aria-labelledby="yp-preview-title">
-      <header>
-        <h2 id="yp-preview-title">권 부장 부부의 자금 전망</h2>
-        <p>돈이 처음 부족한 때를 비교했어요.</p>
-      </header>
-      <dl>
-        <div>
-          <dt>계획 적용 전</dt>
-          <dd>{dateText(before.firstNegative)}</dd>
+    <section
+      className="yp-planning-guide"
+      id="yp-guide"
+      aria-labelledby="yp-guide-title"
+      tabIndex={-1}
+      ref={guide}
+    >
+      <div className="yp-guide-steps">
+        <h2 id="yp-guide-title">이용안내</h2>
+        <div className="yp-guide-progress" aria-hidden="true">
+          {guideSteps.map(([label], index) => (
+            <span key={label} data-reached={index <= step} />
+          ))}
         </div>
-        <div>
-          <dt>계획 적용 후</dt>
-          <dd>{dateText(after.firstNegative)}</dd>
+        <div className="yp-guide-step">
+          <p className="yp-guide-count">
+            {guideSteps.length}단계 중 {step + 1}단계
+          </p>
+          <h3 ref={heading} tabIndex={-1}>
+            {title}
+          </h3>
+          <p>{description}</p>
         </div>
-      </dl>
-      <p className="yp-preview-period">
-        가상 사례 · {example.start} ~ {example.endYear}-12
-      </p>
-    </section>
-  );
-}
-
-function PlanningGuide() {
-  const items = [
-    ["은퇴 시기", "언제 일을 그만둘 예정인지"],
-    ["매달 쓰는 돈", "한 달 생활비와 대출에 갚는 돈"],
-    ["모아둔 돈과 연금", "예금·투자금 잔액과 매달 받을 국민연금 예상액"],
-  ];
-
-  return (
-    <section className="yp-planning-guide" aria-labelledby="yp-guide-title">
-      <h2 id="yp-guide-title">계산에 필요한 정보</h2>
-      <dl>
-        {items.map(([label, description]) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd>{description}</dd>
+      </div>
+      <section className="yp-guide-demo" aria-label="권 부장 부부 화면 체험">
+        <header>
+          <h3>
+            {["은퇴 계획 상담", "권 부장 부부의 자금 전망", "은퇴 계획"][step]}
+          </h3>
+          <p>권 부장 부부 예시</p>
+        </header>
+        {step === 0 ? (
+          <div className="yp-guide-demo-body">
+            <p>은퇴 예정월은 언제인가요?</p>
+            <p className="yp-guide-reply">
+              {dateText(example.retire)}에 은퇴할 예정이에요.
+            </p>
+            <button
+              type="button"
+              className="yp-primary"
+              onClick={() => showStep(1)}
+            >
+              예시 답변 보내기
+            </button>
           </div>
-        ))}
-      </dl>
+        ) : (
+          <div className="yp-guide-demo-body">
+            {step === 2 && (
+              <fieldset className="yp-guide-options">
+                <legend>은퇴 준비 방법 선택</legend>
+                {(
+                  [
+                    ["job", "재취업"],
+                    ["home", "주택연금"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label key={key}>
+                    <input
+                      type="checkbox"
+                      checked={demoPlan[key]}
+                      onChange={(event) => {
+                        const checked = event.currentTarget.checked;
+                        setDemoPlan((current) => ({
+                          ...current,
+                          [key]: checked,
+                        }));
+                      }}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </fieldset>
+            )}
+            <dl
+              className="yp-guide-metrics"
+              aria-live={step === 2 ? "polite" : undefined}
+            >
+              <div>
+                <dt>돈이 처음 부족한 때</dt>
+                <dd>
+                  {dateText(
+                    step === 1 ? before.firstNegative : after.firstNegative,
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>가장 적게 남는 돈</dt>
+                <dd>
+                  {money(step === 1 ? before.minAssets : after.minAssets)}
+                </dd>
+              </div>
+            </dl>
+            <button
+              type="button"
+              className="yp-primary"
+              onClick={step === 1 ? () => showStep(2) : onStart}
+            >
+              {step === 1 ? "은퇴 계획 열기" : "내 정보로 시작하기"}
+            </button>
+          </div>
+        )}
+      </section>
+      <div className="yp-guide-controls">
+        {step > 0 && (
+          <button type="button" onClick={() => showStep(step - 1)}>
+            이전 단계
+          </button>
+        )}
+        <button type="button" onClick={onExample}>
+          권 부장 부부 예시 보기
+        </button>
+        <button type="button" className="yp-text-button" onClick={onManual}>
+          직접 입력하기
+        </button>
+      </div>
     </section>
   );
 }
@@ -1155,35 +1261,45 @@ function PlannerWorkspace({
       </a>
       <header className="yp-header">
         <Link className="yp-brand" href="/main">
-          Afterfolio
+          <svg className="yp-brand-mark" viewBox="0 0 36 44" aria-hidden="true">
+            <path fill="currentColor" d="M18 1 29 10H7ZM10 10h16v9H10Z" />
+            <path fill="#adcbd7" d="M13 11h10v6H13Z" />
+            <path
+              fill="currentColor"
+              fillRule="evenodd"
+              d="M8 18h20v4h-3l7 20H22l-2-8h-5l-2 8H3l7-20H8Zm7 12h5l-2.5-7Z"
+            />
+            <path fill="#557e9c" d="M23 22h2l7 20h-4Z" />
+          </svg>
+          afterfolio
         </Link>
-        <button
-          className="yp-header-action"
-          type="button"
-          onClick={() => goTo(activeView === "home" ? "manual" : "home")}
-        >
-          {activeView === "home" ? "직접 입력" : "처음으로"}
-        </button>
+        {activeView !== "home" && (
+          <button
+            className="yp-header-action"
+            type="button"
+            onClick={() => goTo("home")}
+          >
+            처음으로
+          </button>
+        )}
       </header>
       <main className="yp-main" id="yp-main" tabIndex={-1} ref={main}>
         {activeView === "home" ? (
-          <section className="yp-landing">
+          <section className="yp-landing" aria-labelledby="yp-landing-title">
             <div className="yp-landing-copy">
-              <h1>
+              <h1 id="yp-landing-title">
                 은퇴 후 생활비,
                 <br />
-                얼마나 오래 이어질까요?
+                얼마나 오래 쓸 수 있을까요?
               </h1>
               <p>
-                생활비와 연금, 모아둔 돈을 입력하면 언제 생활비가 부족해지는지
-                알 수 있어요. 재취업이나 연금 수령 시기를 바꿔 비교해 보세요.
+                매달 쓰는 돈과 연금, 모아둔 돈을 입력하면 앞으로의 생활을 미리
+                살펴볼 수 있어요.
               </p>
               <div className="yp-landing-actions">
+                <a href="#yp-guide">이용안내</a>
                 <button className="yp-primary" onClick={() => goTo("chat")}>
-                  대화로 은퇴 계획 시작하기
-                </button>
-                <button onClick={() => router.push("/dashboard/example")}>
-                  권 부장 부부 예시 보기
+                  시작하기
                 </button>
               </div>
               {storageReady && (result || Object.keys(origins).length > 0) && (
@@ -1195,8 +1311,16 @@ function PlannerWorkspace({
                 </button>
               )}
             </div>
-            <ExamplePreview />
-            <PlanningGuide />
+            <div className="yp-landing-details">
+              <PlanningGuide
+                onStart={() => goTo("chat")}
+                onManual={() => goTo("manual")}
+                onExample={() => {
+                  window.scrollTo(0, 0);
+                  router.push("/dashboard/example");
+                }}
+              />
+            </div>
           </section>
         ) : (
           <section className="yp-intro">
@@ -2659,26 +2783,44 @@ function PlannerWorkspace({
           aria-label={chatOpen ? "챗봇 닫기" : "챗봇 열기"}
           onClick={chatOpen ? closeChat : openChat}
         >
-          <svg
-            width="28"
-            height="28"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            {chatOpen ? (
+          {!chatOpen ? (
+            <>
+              {activeView === "home" && (
+                <span className="yp-coast-chat-hint" aria-hidden="true">
+                  궁금한 점이 있으신가요?
+                </span>
+              )}
+              <svg
+                className="yp-coast-chat-icon"
+                viewBox="0 0 64 42"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M5 26c4-8 10-13 17-13 6 0 11 6 15 11l-8 8c-8 4-15 0-24-6Z" />
+                <path d="M27 15c4-6 8-9 13-8 4 1 7 4 10 8 5 1 9 4 11 8-8-1-14 1-19 5l-10 3" />
+                <circle cx="48" cy="16" r="1.3" fill="currentColor" />
+                <path d="m20 33-2 5m9-5-1 6m35-16 2 1" stroke="#9d7e45" />
+              </svg>
+            </>
+          ) : (
+            <svg
+              width="28"
+              height="28"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
               <path d="m6 6 12 12M18 6 6 18" />
-            ) : (
-              <>
-                <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3V11.5A7.5 7.5 0 0 1 9.5 4h3a7.5 7.5 0 0 1 7.5 7.5Z" />
-                <path d="M7 10h8M7 14h5" />
-              </>
-            )}
-          </svg>
+            </svg>
+          )}
         </button>
       )}
     </div>
