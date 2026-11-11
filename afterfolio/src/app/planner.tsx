@@ -500,9 +500,7 @@ function PlanningGuide({
           ))}
         </div>
         <div className="yp-guide-step">
-          <p className="yp-guide-count">
-            {guideSteps.length}단계 중 {step + 1}단계
-          </p>
+          <p className="yp-guide-count">{step + 1}단계</p>
           <h3 ref={heading} tabIndex={-1}>
             {title}
           </h3>
@@ -511,9 +509,7 @@ function PlanningGuide({
       </div>
       <section className="yp-guide-demo" aria-label="권 부장 부부 화면 체험">
         <header>
-          <h3>
-            {["은퇴 계획 상담", "권 부장 부부의 자금 전망", "은퇴 계획"][step]}
-          </h3>
+          <h3>{["은퇴 계획 상담", "자금 전망", "은퇴 계획"][step]}</h3>
           <p>권 부장 부부 예시</p>
         </header>
         {step === 0 ? (
@@ -1262,14 +1258,12 @@ function PlannerWorkspace({
       <header className="yp-header">
         <Link className="yp-brand" href="/main">
           <svg className="yp-brand-mark" viewBox="0 0 36 44" aria-hidden="true">
-            <path fill="currentColor" d="M18 1 29 10H7ZM10 10h16v9H10Z" />
-            <path fill="#adcbd7" d="M13 11h10v6H13Z" />
-            <path
-              fill="currentColor"
-              fillRule="evenodd"
-              d="M8 18h20v4h-3l7 20H22l-2-8h-5l-2 8H3l7-20H8Zm7 12h5l-2.5-7Z"
-            />
-            <path fill="#557e9c" d="M23 22h2l7 20h-4Z" />
+            <path fill="currentColor" d="m6 9 12-7 12 7-4 2v6H10v-6Z" />
+            <path fill="#7194c1" d="m18 2 12 7-4 2v6h-8Z" />
+            <path fill="currentColor" d="M8 17h20l6 25H23l-2-7h-6l-2 7H2Z" />
+            <path fill="#a2b9d8" d="M18 17h10l6 25H23l-2-7h-3Z" />
+            <path fill="#789aca" d="m3 15 15-3 15 3v4l-15-2-15 2Z" />
+            <path fill="#f5f2e7" d="m18 23 3 7h-6Z" />
           </svg>
           afterfolio
         </Link>
@@ -1287,29 +1281,34 @@ function PlannerWorkspace({
         {activeView === "home" ? (
           <section className="yp-landing" aria-labelledby="yp-landing-title">
             <div className="yp-landing-copy">
-              <h1 id="yp-landing-title">
-                은퇴 후 생활비,
-                <br />
-                얼마나 오래 쓸 수 있을까요?
-              </h1>
-              <p>
-                매달 쓰는 돈과 연금, 모아둔 돈을 입력하면 앞으로의 생활을 미리
-                살펴볼 수 있어요.
-              </p>
-              <div className="yp-landing-actions">
-                <a href="#yp-guide">이용안내</a>
-                <button className="yp-primary" onClick={() => goTo("chat")}>
-                  시작하기
-                </button>
+              <div className="yp-landing-sky">
+                <h1 id="yp-landing-title">
+                  은퇴 후 생활비,
+                  <br />
+                  얼마나 오래 쓸 수 있을까요?
+                </h1>
+                <p>
+                  매달 쓰는 돈과 연금, 모아둔 돈을 입력하면 앞으로의 생활을 미리
+                  살펴볼 수 있어요.
+                </p>
               </div>
-              {storageReady && (result || Object.keys(origins).length > 0) && (
-                <button
-                  className="yp-text-button"
-                  onClick={() => (result ? showResult() : goTo("manual"))}
-                >
-                  저장한 {result ? "결과" : "입력"} 이어보기
-                </button>
-              )}
+              <div className="yp-landing-sea">
+                <div className="yp-landing-actions">
+                  <a href="#yp-guide">이용안내</a>
+                  <button className="yp-primary" onClick={() => goTo("chat")}>
+                    시작하기
+                  </button>
+                </div>
+                {storageReady &&
+                  (result || Object.keys(origins).length > 0) && (
+                    <button
+                      className="yp-text-button"
+                      onClick={() => (result ? showResult() : goTo("manual"))}
+                    >
+                      저장한 {result ? "결과" : "입력"} 이어보기
+                    </button>
+                  )}
+              </div>
             </div>
             <div className="yp-landing-details">
               <PlanningGuide
