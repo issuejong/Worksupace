@@ -737,6 +737,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
   background: var(--action-active);
 }
 .yp-thread {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow: auto;
