@@ -51,6 +51,7 @@ import {
   inputLookups,
   skippableMoneyFields,
 } from "../lib/input";
+import { retirementHelp } from "../lib/retirement-help";
 import type { Candidate } from "../lib/household-agent";
 import {
   readPlannerSession,
@@ -953,6 +954,7 @@ function PlannerWorkspace({
   const pendingIntake = messages.findLast(
     (m) =>
       m.reply.intake &&
+      !m.reply.tools.includes("help") &&
       m.snapshot === snapshot &&
       m.revision === revision.current,
   );
@@ -1202,7 +1204,13 @@ function PlannerWorkspace({
       collecting &&
       !explain &&
       resolveIntakeInputAction(q, intake.household, intake.solutions);
-    if (!q || sending.current || (!inputAction && retryUntil > Date.now()))
+    if (
+      !q ||
+      sending.current ||
+      (!inputAction &&
+        (explain || !retirementHelp(q)) &&
+        retryUntil > Date.now())
+    )
       return;
     sending.current = true;
     submittedExplanation.current = explain;
@@ -1261,7 +1269,7 @@ function PlannerWorkspace({
         throw Error((body.error || "AI 연결을 확인해 주세요.") + reference);
       }
       if (signal.aborted) return;
-      if (body.intake) {
+      if (body.intake && !body.tools?.includes("help")) {
         const latestPatch = body.intake.patch;
         const patch = { ...pendingPatch, ...latestPatch };
         if ((patch.hasSpouse ?? h.hasSpouse) === false) {
@@ -2914,6 +2922,7 @@ function PlannerWorkspace({
                       disabled={
                         !question.trim() ||
                         (retrySeconds > 0 &&
+                          !retirementHelp(question) &&
                           !(
                             collecting &&
                             resolveIntakeInputAction(

@@ -19,6 +19,7 @@ import {
   resolveIntakeInputAction,
 } from "../../../lib/input";
 import { runHouseholdAgent } from "../../../lib/household-agent";
+import { retirementHelp } from "../../../lib/retirement-help";
 import { retirementExplanation } from "../../../lib/result-explanation";
 import { providerStatus } from "../../../lib/ai-reliability";
 import {
@@ -167,6 +168,30 @@ export async function POST(req: Request) {
           intake: { patch, skipped },
           candidates: [],
           tools: ["collect"],
+          searched: 0,
+        });
+      }
+    }
+    if (parsed.data.operation !== "explain") {
+      const { question, household, solutions, pendingIntake, operation } =
+        parsed.data;
+      const help = retirementHelp(question);
+      if (help) {
+        const collecting = operation === "collect";
+        const next = collecting
+          ? intakeAnswer(
+              { ...blankHousehold(), ...household },
+              solutions,
+              {},
+              [],
+              pendingIntake,
+            )
+          : "";
+        return respond({
+          answer: next ? `${help}\n\n${next}` : help,
+          ...(collecting ? { intake: { patch: {} } } : {}),
+          candidates: [],
+          tools: ["help"],
           searched: 0,
         });
       }

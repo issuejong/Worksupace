@@ -537,3 +537,51 @@ it("keeps the first retirement answer and moves from birth to spouse status", as
   expect(invalid.answer).toContain("본인 출생연월은 언제인가요?");
   expect(create).not.toHaveBeenCalled();
 });
+
+it.each([
+  ["비상자금이 뭐야?", "비상자금은 예상치 못한 지출"],
+  ["국민연금 예상액 어디서 확인해?", "국민연금공단 예상연금액 조회"],
+  ["그래프는 어떻게 읽어?", "점선은 계획 적용 전"],
+])(
+  "answers %s and resumes intake without changing the draft",
+  async (question, expected) => {
+    vi.stubEnv("AI_ACCESS_TOKEN", "");
+    const response = await POST(
+      new Request("http://local/api/agent", {
+        method: "POST",
+        body: JSON.stringify({
+          operation: "collect",
+          question,
+          household: {},
+          solutions: none,
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.answer).toContain(expected);
+    expect(body.answer).toContain("은퇴 예정월은 언제인가요?");
+    expect(body.intake.patch).toEqual({});
+    expect(create).not.toHaveBeenCalled();
+  },
+);
+
+it("answers feature help in result chat without requiring simulation inputs", async () => {
+  vi.stubEnv("AI_ACCESS_TOKEN", "");
+  const response = await POST(
+    new Request("http://local/api/agent", {
+      method: "POST",
+      body: JSON.stringify({
+        operation: "analyze",
+        question: "직접 입력은 어디서 해?",
+        household: {},
+        solutions: none,
+      }),
+    }),
+  );
+  expect(response.status).toBe(200);
+  const body = await response.json();
+  expect(body.answer).toContain("](/guide)");
+  expect(body.intake).toBeUndefined();
+  expect(create).not.toHaveBeenCalled();
+});
