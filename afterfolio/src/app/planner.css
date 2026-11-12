@@ -690,11 +690,17 @@ details[open] > .yp-detail-summary .yp-detail-action {
   text-align: center;
   line-height: 1.9;
 }
+.yp-app {
+  --chat-edge: 24px;
+  --chat-button-size: 64px;
+  --chat-bottom: calc(var(--chat-edge) + env(safe-area-inset-bottom));
+  --chat-gap: 12px;
+}
 .yp-agent {
   position: fixed;
   z-index: 28;
-  right: 24px;
-  bottom: 100px;
+  right: var(--chat-edge);
+  bottom: calc(var(--chat-bottom) + var(--chat-button-size) + var(--chat-gap));
   top: auto;
   width: min(420px, calc(100vw - 48px));
   height: min(720px, calc(100dvh - 128px));
@@ -714,14 +720,14 @@ details[open] > .yp-detail-summary .yp-detail-action {
 }
 .yp-app .yp-chat-launcher {
   position: fixed;
-  right: 24px;
-  bottom: 24px;
+  right: var(--chat-edge);
+  bottom: var(--chat-bottom);
   z-index: 29;
   display: grid;
   place-items: center;
-  width: 64px;
-  height: 64px;
-  min-height: 64px;
+  width: var(--chat-button-size);
+  height: var(--chat-button-size);
+  min-height: var(--chat-button-size);
   padding: 0;
   border-radius: 50%;
   border: 1px solid #ffffff40;
@@ -1244,20 +1250,9 @@ details[open] > .yp-detail-summary .yp-detail-action {
   }
 }
 @media (max-width: 700px) {
-  .yp-app .yp-chat-launcher {
-    right: 16px;
-    bottom: calc(16px + env(safe-area-inset-bottom));
-    width: 60px;
-    height: 60px;
-    min-height: 60px;
-  }
-  .yp-agent {
-    right: 12px;
-    bottom: calc(88px + env(safe-area-inset-bottom));
-    padding: 0;
-    width: calc(100vw - 24px);
-    height: min(700px, calc(100dvh - 112px - env(safe-area-inset-bottom)));
-    border-radius: 18px;
+  .yp-app {
+    --chat-edge: 16px;
+    --chat-button-size: 60px;
   }
   .yp-agent .yp-panel-heading {
     padding: 14px 16px;
@@ -2180,12 +2175,6 @@ details[open] > .yp-detail-summary .yp-detail-action {
   }
 }
 
-.yp-flow .yp-agent {
-  width: min(480px, calc(100vw - 32px));
-  max-width: none;
-  border-radius: 14px;
-}
-
 .yp-flow .yp-agent .yp-thread {
   min-height: 0;
   max-height: none;
@@ -2201,12 +2190,6 @@ details[open] > .yp-detail-summary .yp-detail-action {
 
 .yp-flow .yp-agent .yp-panel-heading > button {
   font-size: 24px;
-}
-
-@media (max-width: 700px) {
-  .yp-flow .yp-agent {
-    width: calc(100vw - 24px);
-  }
 }
 
 /* Shared report layout: clear figures, restrained controls, readable supporting text. */
@@ -2597,8 +2580,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
   min-height: 96px;
 }
 .yp-flow .yp-agent {
-  width: 400px;
-  border-radius: 12px;
+  width: min(400px, calc(100vw - 2 * var(--chat-edge)));
   box-shadow: 0 8px 32px rgb(35 40 43 / 12%);
 }
 .yp-flow .yp-agent .yp-composer textarea {
@@ -2608,11 +2590,8 @@ details[open] > .yp-detail-summary .yp-detail-action {
   box-shadow: 0 4px 12px rgb(35 40 43 / 16%);
 }
 @media (min-width: 1280px) {
-  .yp-chat-visible .yp-main {
-    padding-right: calc(var(--flow-gutter) + 432px);
-  }
-  .yp-chat-visible .yp-agent {
-    right: max(24px, calc((100vw - 1360px) / 2 + 48px));
+  .yp-chat-visible:is(.yp-view-result, .yp-view-manual) .yp-main {
+    padding-right: max(var(--flow-gutter), calc(436px - (100vw - 1360px) / 2));
   }
   .yp-chat-visible .yp-result-summary dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2690,17 +2669,6 @@ details[open] > .yp-detail-summary .yp-detail-action {
     max-width: none;
   }
 }
-@media (max-width: 700px) {
-  .yp-flow .yp-agent {
-    top: 12px;
-    right: 12px;
-    bottom: calc(96px + env(safe-area-inset-bottom));
-    width: calc(100vw - 24px);
-    height: auto;
-    max-height: none;
-  }
-}
-
 /* Plain-language financial results: full won amounts and readable row groups. */
 .yp-field-help {
   color: var(--muted);
@@ -2821,7 +2789,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
 }
 @media (max-width: 700px) {
   .yp-flow .yp-agent {
-    top: auto;
+    width: calc(100vw - 2 * var(--chat-edge));
     height: min(600px, calc(100dvh - 108px - env(safe-area-inset-bottom)));
   }
 }
