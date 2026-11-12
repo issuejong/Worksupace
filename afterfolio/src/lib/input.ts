@@ -588,7 +588,6 @@ export function intakeAnswer(
         : "계산에 필요한 정보가 모였어요."
       : "입력한 날짜와 계산 기간을 확인해 주세요. 직접 입력 화면에서 수정할 수 있어요.";
   return [
-    Object.keys(patch).length ? "알려주신 내용을 확인 카드에 정리했어요." : "",
     invalid.length
       ? `형식이나 범위를 확인할 항목은 제외했어요. ${invalid.join(" · ")}`
       : "",
