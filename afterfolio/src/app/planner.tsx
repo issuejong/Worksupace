@@ -493,6 +493,7 @@ function ScreenTour({
   offset: number;
 }) {
   const [step, setStep] = useState(0);
+  const [complete, setComplete] = useState(false);
   const [position, setPosition] = useState<{
     left: number;
     top: number;
@@ -514,6 +515,10 @@ function ScreenTour({
   }, []);
 
   useEffect(() => {
+    if (complete) {
+      panel.current?.focus({ preventScroll: true });
+      return;
+    }
     const target = document.querySelector<HTMLElement>(item.target);
     if (!target) return;
     target.scrollIntoView({ block: "center" });
@@ -565,7 +570,7 @@ function ScreenTour({
       window.removeEventListener("scroll", place);
       window.removeEventListener("resize", place);
     };
-  }, [item]);
+  }, [item, complete]);
 
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
@@ -577,7 +582,7 @@ function ScreenTour({
 
   return (
     <>
-      {position && (
+      {position && !complete && (
         <div
           className="yp-tour-spotlight"
           aria-hidden="true"
@@ -590,49 +595,74 @@ function ScreenTour({
         />
       )}
       <div
-        className="yp-tour-panel"
+        className={`yp-tour-panel${complete ? " yp-tour-complete" : ""}`}
         role="region"
         aria-labelledby="yp-tour-title"
         tabIndex={-1}
         ref={panel}
-        style={{
-          left: position?.panelLeft ?? 12,
-          top: position?.panelTop ?? 12,
-          visibility: position ? "visible" : "hidden",
-        }}
+        style={
+          complete
+            ? undefined
+            : {
+                left: position?.panelLeft ?? 12,
+                top: position?.panelTop ?? 12,
+                visibility: position ? "visible" : "hidden",
+              }
+        }
       >
         <div className="yp-tour-heading">
-          <h2 id="yp-tour-title">{item.title}</h2>
+          <h2 id="yp-tour-title">
+            {complete ? "이용안내를 마쳤어요" : item.title}
+          </h2>
           <button type="button" aria-label="이용안내 닫기" onClick={onClose}>
             ×
           </button>
         </div>
-        <p>{item.body}</p>
-        <div className="yp-tour-actions">
-          <span
-            aria-label={`전체 ${resultTour.length + 2}단계 중 ${offset + step + 1}단계`}
-          >
-            {offset + step + 1} / {resultTour.length + 2}
-          </span>
-          {step > 0 ? (
-            <button type="button" onClick={() => setStep(step - 1)}>
-              이전
-            </button>
-          ) : previousHref ? (
-            <Link href={previousHref}>이전</Link>
-          ) : null}
-          {step < steps.length - 1 ? (
-            <button type="button" onClick={() => setStep(step + 1)}>
-              다음
-            </button>
-          ) : nextHref ? (
-            <Link href={nextHref}>다음</Link>
-          ) : (
+        <p>
+          {complete
+            ? "권 부장 부부의 예시를 더 살펴보거나 내 정보로 계산을 시작할 수 있어요."
+            : item.body}
+        </p>
+        {complete ? (
+          <div className="yp-tour-actions">
+            <Link href="/chat" onClick={onClose}>
+              내 정보로 시작하기
+            </Link>
             <button type="button" onClick={onClose}>
-              완료
+              권 부장 부부 예시 보기
             </button>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="yp-tour-actions">
+            <span
+              aria-label={`전체 ${resultTour.length + 2}단계 중 ${offset + step + 1}단계`}
+            >
+              {offset + step + 1} / {resultTour.length + 2}
+            </span>
+            {step > 0 ? (
+              <button type="button" onClick={() => setStep(step - 1)}>
+                이전
+              </button>
+            ) : previousHref ? (
+              <Link href={previousHref}>이전</Link>
+            ) : null}
+            {step < steps.length - 1 ? (
+              <button type="button" onClick={() => setStep(step + 1)}>
+                다음
+              </button>
+            ) : nextHref ? (
+              <Link href={nextHref}>
+                {nextHref.startsWith("/dashboard/example")
+                  ? "권 부장 부부 예시 보기"
+                  : "다음"}
+              </Link>
+            ) : (
+              <button type="button" onClick={() => setComplete(true)}>
+                안내 마치기
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </>
   );
@@ -1679,6 +1709,10 @@ function PlannerWorkspace({
                     </button>
                   )}
               </div>
+            </div>
+            <div className="yp-landing-example">
+              <p>내 정보를 입력하기 전에 예시 결과를 먼저 살펴보세요.</p>
+              <Link href="/dashboard/example">권 부장 부부 예시 보기</Link>
             </div>
           </section>
         ) : (

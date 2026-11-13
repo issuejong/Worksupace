@@ -1754,6 +1754,31 @@ details[open] > .yp-detail-summary .yp-detail-action {
   gap: clamp(16px, 2.5vw, 24px);
   padding: clamp(48px, 8svh, 88px) var(--flow-gutter) 24px;
 }
+.yp-landing-example {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px 24px;
+  padding: 24px var(--flow-gutter);
+  background: linear-gradient(180deg, #183945, #102831);
+  text-align: center;
+}
+.yp-landing-example p {
+  color: #d6e4e8;
+  word-break: keep-all;
+}
+.yp-landing-example a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--coast-night-ink);
+  font-weight: 700;
+  text-underline-offset: 4px;
+}
+.yp-flow .yp-landing-example a:focus-visible {
+  outline-color: var(--coast-night-ink);
+}
 .yp-landing-sea {
   display: grid;
   justify-items: center;
@@ -1776,6 +1801,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
 }
 .yp-landing-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 12px;
   width: 100%;
@@ -3158,6 +3184,14 @@ details[open] > .yp-detail-summary .yp-detail-action {
   color: #20272e;
 }
 
+.yp-flow .yp-tour-complete {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+.yp-tour-complete .yp-tour-actions {
+  flex-wrap: wrap;
+}
 .yp-flow[data-theme="dark"] .yp-tour-spotlight {
   border-color: #82ede6;
   box-shadow:
