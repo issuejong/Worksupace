@@ -653,11 +653,7 @@ function ScreenTour({
                 다음
               </button>
             ) : nextHref ? (
-              <Link href={nextHref}>
-                {nextHref.startsWith("/dashboard/example")
-                  ? "권 부장 부부 예시 보기"
-                  : "다음"}
-              </Link>
+              <Link href={nextHref}>다음</Link>
             ) : (
               <button type="button" onClick={() => setComplete(true)}>
                 안내 마치기
