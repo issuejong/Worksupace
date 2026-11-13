@@ -1366,7 +1366,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
   --coast-paper: #fff;
   --coast-gold: #b9cbd5;
   --coast-end: #f6f9fb;
-  --coast-scene: url("/afterfolio-lighthouse.png");
+  --coast-scene: url("/afterfolio-coast-light.webp");
   --coast-night-ink: #fff9ef;
   --coast-deep: #203942;
   --coast-mobile-sky: #304f5b;
@@ -1403,7 +1403,7 @@ details[open] > .yp-detail-summary .yp-detail-action {
   --coast-end: #15262d;
   --coast-deep: #142630;
   --coast-mobile-sky: #03101d;
-  --coast-scene: url("/afterfolio-lighthouse-night.webp");
+  --coast-scene: url("/afterfolio-coast-dark.webp");
   --muted: #ccdde1;
   --accent: #b3e5e6;
   --action-fill: #356974;
@@ -1424,10 +1424,10 @@ details[open] > .yp-detail-summary .yp-detail-action {
 /* Larger canvases and high-density desktop displays use pixel-preserving exports. */
 @media (min-width: 1200px), (min-width: 900px) and (min-resolution: 1.5dppx) {
   .yp-flow {
-    --coast-scene: url("/afterfolio-lighthouse-2x.webp");
+    --coast-scene: url("/afterfolio-coast-light-2x.webp");
   }
   .yp-flow[data-theme="dark"] {
-    --coast-scene: url("/afterfolio-lighthouse-night-2x.webp");
+    --coast-scene: url("/afterfolio-coast-dark-2x.webp");
   }
 }
 .yp-flow h1 {
@@ -1469,8 +1469,8 @@ details[open] > .yp-detail-summary .yp-detail-action {
   line-height: 1;
   min-height: 44px;
 }
-.yp-brand-mark {
-  width: clamp(24px, 3vw, 32px);
+.yp-header-logo {
+  width: clamp(126px, 16vw, 184px);
   height: auto;
 }
 .yp-header-actions {
@@ -1877,7 +1877,8 @@ details[open] > .yp-detail-summary .yp-detail-action {
   background: var(--flow-quiet);
 }
 .yp-coast-chat-icon {
-  width: 76%;
+  width: 86%;
+  height: auto;
 }
 .yp-coast-chat-hint {
   position: absolute;

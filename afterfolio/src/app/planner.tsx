@@ -1,4 +1,6 @@
 "use client";
+
+import Image from "next/image";
 import {
   useEffect,
   useMemo,
@@ -1620,15 +1622,18 @@ function PlannerWorkspace({
       </a>
       <header className="yp-header">
         <Link className="yp-brand" href="/main">
-          <svg className="yp-brand-mark" viewBox="0 0 36 44" aria-hidden="true">
-            <path fill="currentColor" d="m6 9 12-7 12 7-4 2v6H10v-6Z" />
-            <path fill="#7194c1" d="m18 2 12 7-4 2v6h-8Z" />
-            <path fill="currentColor" d="M8 17h20l6 25H23l-2-7h-6l-2 7H2Z" />
-            <path fill="#a2b9d8" d="M18 17h10l6 25H23l-2-7h-3Z" />
-            <path fill="#789aca" d="m3 15 15-3 15 3v4l-15-2-15 2Z" />
-            <path fill="var(--coast-paper)" d="m18 23 3 7h-6Z" />
-          </svg>
-          afterfolio
+          <Image
+            className="yp-header-logo"
+            src={
+              theme === "dark"
+                ? "/afterfolio-header-logo-dark.webp"
+                : "/afterfolio-header-logo.webp"
+            }
+            alt="Afterfolio"
+            width={602}
+            height={139}
+            unoptimized
+          />
         </Link>
         <div className="yp-header-actions">
           <button
@@ -3318,21 +3323,14 @@ function PlannerWorkspace({
                   궁금한 점이 있으신가요?
                 </span>
               )}
-              <svg
+              <Image
                 className="yp-coast-chat-icon"
-                viewBox="0 0 64 42"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M5 26c4-8 10-13 17-13 6 0 11 6 15 11l-8 8c-8 4-15 0-24-6Z" />
-                <path d="M27 15c4-6 8-9 13-8 4 1 7 4 10 8 5 1 9 4 11 8-8-1-14 1-19 5l-10 3" />
-                <circle cx="48" cy="16" r="1.3" fill="currentColor" />
-                <path d="m20 33-2 5m9-5-1 6m35-16 2 1" stroke="#9d7e45" />
-              </svg>
+                src="/afterfolio-chat-gull.webp"
+                alt=""
+                width={160}
+                height={160}
+                unoptimized
+              />
             </>
           ) : (
             <svg
