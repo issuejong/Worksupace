@@ -43,7 +43,6 @@ import {
   inputLabels,
   mergeIntake,
   readScenarioFile,
-  optionalPlanHint,
   isSkippableMoneyField,
   nextIntakeField,
   intakeAnswer,
@@ -452,283 +451,342 @@ function Charts({
 }
 type PlannerView = "home" | "chat" | "manual" | "result";
 
-const guideSteps = [
-  [
-    "은퇴 시기와 생활비를 알려주세요",
-    "은퇴 예정월부터 한 가지씩 답하면 자금 전망을 계산할 수 있어요.",
-  ],
-  [
-    "돈이 언제 부족해지는지 확인해요",
-    "잔액이 처음 0원 아래로 내려가는 달부터 확인해 보세요.",
-  ],
-  [
-    "준비 방법을 바꿔 결과를 비교해요",
-    "재취업이나 주택연금을 눌러 보세요. 아래 금액이 바로 바뀌어요.",
-  ],
+const resultTour = [
+  {
+    target: ".yp-result-summary",
+    title: "자금 전망을 확인해요",
+    body: "돈이 처음 부족해지는 달과 비상자금 목표를 확인할 수 있어요.",
+  },
+  {
+    target: ".yp-plan-option",
+    title: "은퇴 계획을 선택해요",
+    body: "다시 일하기나 대출 갚기 같은 준비 방법을 켜면 예시 결과가 바로 바뀌어요.",
+  },
+  {
+    target: "#yp-result > :first-child",
+    title: "계획 적용 전후를 비교해요",
+    body: "점선은 계획 적용 전, 실선은 적용 후예요. 나란히 보기를 눌러 각각 볼 수도 있어요.",
+  },
+  {
+    target: ".yp-explain-result",
+    title: "결과를 쉬운 말로 읽어요",
+    body: "결과 설명 보기를 누르면 챗봇에 현재 자금 전망에 대한 설명을 요청해요.",
+  },
+  {
+    target: "#yp-basis-title",
+    title: "계산에 쓴 가정을 확인해요",
+    body: "물가 상승률과 수익률, 월별 수입과 지출을 살펴볼 수 있어요.",
+  },
 ];
 
-function PlanningGuide({
-  onStart,
-  onManual,
-  onExample,
+function ScreenTour({
+  steps,
+  onClose,
+  nextHref,
+  previousHref,
+  offset,
 }: {
-  onStart: () => void;
-  onManual: () => void;
-  onExample: () => void;
+  steps: typeof resultTour;
+  onClose: () => void;
+  nextHref?: string;
+  previousHref?: string;
+  offset: number;
 }) {
-  const [demoLiving, setDemoLiving] = useState(example.living);
-  const [demoPlan, setDemoPlan] = useState(adopted);
-  const before = useMemo(() => calculate(example, none, false), []);
-  const after = useMemo(() => calculate(example, demoPlan), [demoPlan]);
+  const [step, setStep] = useState(0);
+  const [position, setPosition] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    panelLeft: number;
+    panelTop: number;
+  } | null>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const lastFocus = useRef<HTMLElement | null>(null);
+  const item = steps[step];
+
+  useEffect(() => {
+    lastFocus.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    return () => lastFocus.current?.focus({ preventScroll: true });
+  }, []);
+
+  useEffect(() => {
+    const target = document.querySelector<HTMLElement>(item.target);
+    if (!target) return;
+    target.scrollIntoView({ block: "center" });
+    const place = () => {
+      const rect = target.getBoundingClientRect();
+      const width = Math.min(330, innerWidth - 24);
+      const height = panel.current?.offsetHeight ?? 180;
+      const gap = 14;
+      const left = Math.max(4, rect.left - 4);
+      const right = Math.min(innerWidth - 4, rect.right + 4);
+      const top = Math.max(0, rect.top - 4);
+      const bottom = Math.min(innerHeight, rect.bottom + 4);
+      const fitsRight = right + width + gap <= innerWidth - 12;
+      const fitsLeft = left - width - gap >= 12;
+      const panelLeft = fitsRight
+        ? right + gap
+        : fitsLeft
+          ? left - width - gap
+          : Math.max(12, Math.min(left, innerWidth - width - 12));
+      const panelTop =
+        fitsRight || fitsLeft
+          ? top
+          : bottom + gap + height <= innerHeight - 12
+            ? bottom + gap
+            : top - height - gap >= 12
+              ? top - height - gap
+              : innerHeight - height - 12;
+      setPosition({
+        left,
+        top,
+        width: Math.max(0, right - left),
+        height: Math.max(0, bottom - top),
+        panelLeft,
+        panelTop: Math.max(12, Math.min(panelTop, innerHeight - height - 12)),
+      });
+    };
+    place();
+    const focusFrame = requestAnimationFrame(() =>
+      panel.current?.focus({ preventScroll: true }),
+    );
+    const observer = new ResizeObserver(place);
+    observer.observe(target);
+    if (panel.current) observer.observe(panel.current);
+    window.addEventListener("scroll", place, { passive: true });
+    window.addEventListener("resize", place);
+    return () => {
+      cancelAnimationFrame(focusFrame);
+      observer.disconnect();
+      window.removeEventListener("scroll", place);
+      window.removeEventListener("resize", place);
+    };
+  }, [item]);
+
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, [onClose]);
+
+  return (
+    <>
+      {position && (
+        <div
+          className="yp-tour-spotlight"
+          aria-hidden="true"
+          style={{
+            left: position.left,
+            top: position.top,
+            width: position.width,
+            height: position.height,
+          }}
+        />
+      )}
+      <div
+        className="yp-tour-panel"
+        role="region"
+        aria-labelledby="yp-tour-title"
+        tabIndex={-1}
+        ref={panel}
+        style={{
+          left: position?.panelLeft ?? 12,
+          top: position?.panelTop ?? 12,
+          visibility: position ? "visible" : "hidden",
+        }}
+      >
+        <div className="yp-tour-heading">
+          <h2 id="yp-tour-title">{item.title}</h2>
+          <button type="button" aria-label="이용안내 닫기" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <p>{item.body}</p>
+        <div className="yp-tour-actions">
+          <span
+            aria-label={`전체 ${resultTour.length + 2}단계 중 ${offset + step + 1}단계`}
+          >
+            {offset + step + 1} / {resultTour.length + 2}
+          </span>
+          {step > 0 ? (
+            <button type="button" onClick={() => setStep(step - 1)}>
+              이전
+            </button>
+          ) : previousHref ? (
+            <Link href={previousHref}>이전</Link>
+          ) : null}
+          {step < steps.length - 1 ? (
+            <button type="button" onClick={() => setStep(step + 1)}>
+              다음
+            </button>
+          ) : nextHref ? (
+            <Link href={nextHref}>다음</Link>
+          ) : (
+            <button type="button" onClick={onClose}>
+              완료
+            </button>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+const manualTour = [
+  {
+    target: "#yp-settings .yp-input-group:first-child",
+    title: "내 정보를 직접 입력해요",
+    body: "은퇴 예정일과 생활비, 모아둔 돈을 입력해 보세요. 금액 칸에 표시된 단위를 확인해 주세요.",
+  },
+];
+const chatTour = [
+  {
+    target: "#yp-tour-chat",
+    title: "챗봇과 함께 입력해요",
+    body: "챗봇의 질문에 아래 입력칸에서 한 가지씩 답해 보세요. 입력을 마치면 내 결과를 볼 수 있어요.",
+  },
+];
+
+function ReserveComparison({
+  household,
+  plan,
+  current,
+  onApply,
+}: {
+  household: Household;
+  plan: Solutions;
+  current: ReturnType<typeof calculate>;
+  onApply: (field: "living" | "jobIncome", amount: number) => void;
+}) {
+  const [field, setField] = useState<"living" | "jobIncome">();
+  const [amount, setAmount] = useState(0);
+  const valid =
+    Number.isFinite(amount) &&
+    amount >= 0 &&
+    (field === "living" ? amount <= 2000 : amount <= 1000000);
+  const preview = useMemo(() => {
+    if (!field || !valid) return null;
+    return calculate(
+      { ...household, [field]: amount },
+      field === "jobIncome" ? { ...plan, job: true } : plan,
+    );
+  }, [household, plan, field, amount, valid]);
+  const firstBelow = (result: ReturnType<typeof calculate>) =>
+    result.rows.find((row) => row.realAssets < result.reserve)?.date;
+  const jobRows =
+    field === "jobIncome"
+      ? preview?.rows.filter((row) => row.components.재취업 > 0)
+      : undefined;
 
   return (
     <section
-      className="yp-planning-guide"
-      id="yp-guide"
-      aria-labelledby="yp-guide-title"
-      tabIndex={-1}
+      className="yp-card yp-reserve-comparison"
+      aria-labelledby="yp-reserve-title"
     >
-      <div className="yp-guide-hero">
-        <h1 id="yp-guide-title">이용안내</h1>
-        <p>
-          직접 입력과 대화 중 편한 방법을 고르고, 권 부장 부부 예시로 결과를
-          살펴보세요.
-        </p>
+      <h2 id="yp-reserve-title">비상자금 시나리오 비교</h2>
+      <p>현재 선택한 은퇴 계획을 기준으로 가정한 조건을 비교해 보세요.</p>
+      <div className="yp-actions">
+        <button
+          aria-pressed={field === "living"}
+          onClick={() => {
+            setField("living");
+            setAmount(
+              Math.max(0, Math.round((household.living - 20) * 10000) / 10000),
+            );
+          }}
+        >
+          생활비 줄여 보기
+        </button>
+        <button
+          aria-pressed={field === "jobIncome"}
+          onClick={() => {
+            setField("jobIncome");
+            setAmount(
+              plan.job && household.jobIncome > 0 ? household.jobIncome : 100,
+            );
+          }}
+        >
+          다시 일하는 경우 보기
+        </button>
       </div>
-      <nav className="yp-guide-index" aria-label="기능별 이용안내">
-        <a href="#yp-guide-manual">직접 입력</a>
-        <a href="#yp-guide-step-1">대화로 입력</a>
-        <a href="#yp-guide-step-2">자금 전망</a>
-        <a href="#yp-guide-step-3">은퇴 계획 선택</a>
-        <a href="#yp-guide-chart">그래프 비교</a>
-        <a href="#yp-guide-tools">결과 설명·저장</a>
-      </nav>
-      <section
-        className="yp-guide-stage"
-        id="yp-guide-manual"
-        aria-labelledby="yp-guide-manual-title"
-        tabIndex={-1}
-      >
-        <div className="yp-guide-step">
-          <h2 id="yp-guide-manual-title">내 정보를 직접 입력해요</h2>
-          <p>
-            생활비, 모아둔 돈, 예상 연금을 알고 있다면 입력 화면에서 바로 시작할
-            수 있어요.
-          </p>
-        </div>
-        <section className="yp-guide-demo" aria-label="직접 입력 예시">
-          <header>
-            <h3>생활비와 자산</h3>
-          </header>
-          <div className="yp-guide-demo-body">
-            <div className="yp-guide-spotlight">
-              <NumberField
-                label="월 생활비"
-                value={demoLiving}
-                onChange={setDemoLiving}
-              />
-            </div>
-            <p className="yp-guide-bubble">
-              250만 원은 250으로 입력해요. 여기서 바꾼 금액은 안내 예시에만
-              쓰여요.
-            </p>
-            <button type="button" className="yp-primary" onClick={onManual}>
-              내 정보 직접 입력하기
-            </button>
-          </div>
-        </section>
-      </section>
-      <ol className="yp-guide-stages" role="list">
-        {guideSteps.map(([title, description], step) => (
-          <li
-            className="yp-guide-stage"
-            id={`yp-guide-step-${step + 1}`}
-            key={title}
-            tabIndex={-1}
-          >
-            <div className="yp-guide-step">
-              <p className="yp-guide-count">{step + 1}단계</p>
-              <h2>{title}</h2>
-            </div>
-            <section
-              className="yp-guide-demo"
-              aria-label={`${title} 예시 화면`}
-            >
-              <header>
-                <h3>{["은퇴 계획 상담", "자금 전망", "은퇴 계획"][step]}</h3>
-              </header>
-              <div className="yp-guide-demo-body">
-                {step === 0 ? (
-                  <>
-                    <p
-                      className="yp-guide-spotlight"
-                      aria-describedby="yp-guide-chat-tip"
-                    >
-                      은퇴 예정월은 언제인가요?
-                    </p>
-                    <p className="yp-guide-bubble" id="yp-guide-chat-tip">
-                      {description}
-                    </p>
-                    <p className="yp-guide-reply">
-                      {dateText(example.retire)}에 은퇴할 예정이에요.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    {step === 2 && (
-                      <fieldset
-                        className="yp-guide-options yp-guide-spotlight"
-                        aria-describedby="yp-guide-plan-tip"
-                      >
-                        <legend>은퇴 준비 방법 선택</legend>
-                        {(
-                          [
-                            ["job", "재취업"],
-                            ["home", "주택연금"],
-                          ] as const
-                        ).map(([key, label]) => (
-                          <label key={key}>
-                            <input
-                              type="checkbox"
-                              checked={demoPlan[key]}
-                              onChange={(event) => {
-                                const checked = event.currentTarget.checked;
-                                setDemoPlan((current) => ({
-                                  ...current,
-                                  [key]: checked,
-                                }));
-                              }}
-                            />
-                            {label}
-                          </label>
-                        ))}
-                      </fieldset>
-                    )}
-                    {step === 2 && (
-                      <p className="yp-guide-bubble" id="yp-guide-plan-tip">
-                        {description}
-                      </p>
-                    )}
-                    <dl
-                      className="yp-guide-metrics"
-                      aria-describedby={
-                        step === 1 ? "yp-guide-result-tip" : undefined
-                      }
-                      aria-live={step === 2 ? "polite" : undefined}
-                    >
-                      <div
-                        className={
-                          step === 1 ? "yp-guide-result-spotlight" : undefined
-                        }
-                      >
-                        <dt>돈이 처음 부족한 때</dt>
-                        <dd>
-                          {dateText(
-                            (step === 1 ? before : after).firstNegative,
-                          )}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>가장 적게 남는 돈</dt>
-                        <dd>
-                          {money((step === 1 ? before : after).minAssets)}
-                        </dd>
-                      </div>
-                    </dl>
-                    {step === 1 && (
-                      <p className="yp-guide-bubble" id="yp-guide-result-tip">
-                        {description}
-                      </p>
-                    )}
-                  </>
-                )}
-                {step < 2 ? (
-                  <a
-                    className="yp-guide-next"
-                    href={`#yp-guide-step-${step + 2}`}
-                  >
-                    {step === 0 ? "예시 답변 보내기" : "은퇴 계획 열기"}
-                  </a>
-                ) : (
-                  <button
-                    type="button"
-                    className="yp-primary"
-                    onClick={onStart}
-                  >
-                    내 정보로 시작하기
-                  </button>
-                )}
-              </div>
-            </section>
-          </li>
-        ))}
-      </ol>
-      <section
-        className="yp-guide-stage yp-guide-chart-stage"
-        id="yp-guide-chart"
-        aria-labelledby="yp-guide-chart-title"
-        tabIndex={-1}
-      >
-        <div className="yp-guide-step">
-          <h2 id="yp-guide-chart-title">계획 적용 전후를 비교해요</h2>
-          <p>
-            같은 가구 정보를 기준으로 준비 방법을 적용했을 때 잔액이 어떻게
-            달라지는지 볼 수 있어요.
-          </p>
-        </div>
-        <div className="yp-guide-chart">
-          <Charts
-            before={before}
-            after={after}
-            year={example.start.slice(0, 4)}
+      {field && (
+        <div className="yp-stack">
+          <NumberField
+            label={
+              field === "living"
+                ? "가정한 월 생활비"
+                : "가정한 재취업 세후 월급"
+            }
+            unit="만 원"
+            precision={4}
+            value={amount}
+            onChange={setAmount}
+            error={
+              valid ? undefined : "입력 가능한 범위의 금액을 입력해 주세요."
+            }
           />
-          <p className="yp-guide-bubble">
-            점선은 계획 적용 전, 실선은 적용 후예요. ‘나란히 보기’를 누르면
-            그래프를 각각 볼 수 있어요.
-          </p>
+          {preview && (
+            <>
+              {jobRows && (
+                <p className="yp-note">
+                  {jobRows.length
+                    ? `재취업 소득 반영 기간 · ${dateText(jobRows[0].date)}부터 ${dateText(jobRows[jobRows.length - 1].date)}까지`
+                    : "현재 은퇴·연금 일정에서 재취업 소득이 반영되는 달이 없어요."}
+                </p>
+              )}
+              <table className="yp-reserve-table">
+                <thead>
+                  <tr>
+                    <th scope="col">비교 항목</th>
+                    <th scope="col">현재 조건</th>
+                    <th scope="col">가정한 조건</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row">비상자금 목표액</th>
+                    <td>{money(current.reserve)}</td>
+                    <td>{money(preview.reserve)}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">목표를 처음 밑도는 달</th>
+                    {[current, preview].map((simulation, index) => (
+                      <td key={index}>
+                        {dateText(firstBelow(simulation) ?? null)}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th scope="row">가장 적게 남는 돈</th>
+                    <td>{money(current.minAssets)}</td>
+                    <td>{money(preview.minAssets)}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div className="yp-actions">
+                <button
+                  className="yp-primary"
+                  onClick={() => {
+                    onApply(field, amount);
+                    setField(undefined);
+                  }}
+                >
+                  이 조건 적용하기
+                </button>
+                <button onClick={() => setField(undefined)}>
+                  미리보기 닫기
+                </button>
+              </div>
+            </>
+          )}
         </div>
-      </section>
-      <section
-        className="yp-guide-stage"
-        id="yp-guide-tools"
-        aria-labelledby="yp-guide-tools-title"
-        tabIndex={-1}
-      >
-        <div className="yp-guide-step">
-          <h2 id="yp-guide-tools-title">결과를 더 살펴보고 이어서 봐요</h2>
-        </div>
-        <dl className="yp-guide-tool-list">
-          <div>
-            <dt>결과 설명 보기</dt>
-            <dd>
-              결과 화면에서 누르면 상담이 열리고 현재 계산 결과에 대한 설명을
-              요청해요.
-            </dd>
-          </div>
-          <div>
-            <dt>계산 기준</dt>
-            <dd>
-              결과 화면에서 물가 상승률과 수익률, 월별 수입·지출 내역을 확인할
-              수 있어요.
-            </dd>
-          </div>
-          <div>
-            <dt>저장한 결과 이어보기</dt>
-            <dd>
-              내가 입력한 내용은 같은 브라우저에 저장돼요. 메인에서 저장한
-              입력이나 결과를 다시 열 수 있어요.
-            </dd>
-          </div>
-        </dl>
-      </section>
-      <div className="yp-guide-controls">
-        <button type="button" onClick={onExample}>
-          권 부장 부부 예시 보기
-        </button>
-        <button type="button" className="yp-text-button" onClick={onManual}>
-          직접 입력하기
-        </button>
-      </div>
+      )}
     </section>
   );
 }
@@ -825,6 +883,7 @@ function PlannerWorkspace({
   const router = useRouter();
   const [view, setView] = useState<"manual" | "result" | null>(null);
   const [showMonthly, setShowMonthly] = useState(false);
+  const [planOpen, setPlanOpen] = useState<boolean>();
   const chatLauncher = useRef<HTMLButtonElement | null>(null);
   const chatClose = useRef<HTMLButtonElement | null>(null);
   const main = useRef<HTMLElement | null>(null);
@@ -975,24 +1034,51 @@ function PlannerWorkspace({
   const intakeComplete =
     Boolean(intakePrepared.household) &&
     solutionSchema.safeParse(intake.solutions).success;
+  const hasPlan =
+    s.benefits ||
+    s.job ||
+    s.repay ||
+    s.catchup ||
+    s.home ||
+    s.pensionOffset !== 0;
+  const planExpanded = planOpen ?? hasPlan;
   const activeView =
     pathname === "/main"
       ? "home"
-      : pathname === "/guide"
-        ? "guide"
-        : pathname === "/chat"
-          ? "chat"
-          : isExample
-            ? "result"
-            : (view ?? (result ? "result" : "manual"));
+      : pathname === "/chat"
+        ? "chat"
+        : isExample
+          ? "result"
+          : (view ?? (result ? "result" : "manual"));
+  const [tourActive, setTourActive] = useState(false);
+  useEffect(() => {
+    const syncTour = () => {
+      const active = window.location.hash === "#tour";
+      setTourActive(active);
+      if (active && isExample) setPlanOpen(true);
+      if (active && pathname === "/dashboard") setView("manual");
+    };
+    syncTour();
+    window.addEventListener("hashchange", syncTour);
+    return () => window.removeEventListener("hashchange", syncTour);
+  }, [pathname, isExample]);
+  function closeTour() {
+    setTourActive(false);
+    window.history.replaceState(window.history.state, "", pathname);
+  }
   const inlineChat = activeView === "chat";
   const collecting = inlineChat || !result;
+  const chatComplete = inlineChat && intakeComplete && !busy;
   const chatting = inlineChat || chatOpen;
   const showConversation = chatting || hasOpenedChat;
   const settings = activeView === "manual";
   const conversation = messages.filter(
-    (m) => Boolean(m.reply.intake) === collecting,
+    (m) =>
+      (Boolean(m.reply.intake) ||
+        m.reply.tools.includes("local-greeting") ||
+        m.reply.tools.includes("local-age")) === collecting,
   );
+  const askName = inlineChat && !intakeComplete && conversation.length === 0;
   const [checkInput, setCheckInput] = useState(false);
 
   function goTo(next: PlannerView) {
@@ -1048,6 +1134,10 @@ function PlannerWorkspace({
     const target = document.getElementById(`yp-${section}`);
     target?.focus({ preventScroll: true });
     target?.scrollIntoView({ block: "start" });
+  }
+  function openPlan() {
+    setPlanOpen(true);
+    requestAnimationFrame(() => jumpToSection("plan"));
   }
   function applyIntake(openResult: boolean) {
     if (busy || (openResult && !intakeComplete)) {
@@ -1161,6 +1251,7 @@ function PlannerWorkspace({
     );
   }
   function resetPlanner() {
+    setPlanOpen(undefined);
     resetDialog.current?.close();
     try {
       window.localStorage.removeItem(sessionKey);
@@ -1200,6 +1291,61 @@ function PlannerWorkspace({
   }
   async function ask(prompt = question, clearDraft = true, explain = false) {
     const q = prompt.trim();
+    if (askName && !explain && q) {
+      const name = q === "건너뛰기" ? "" : q.slice(0, 40);
+      const answer = intakeAnswer(
+        intake.household,
+        intake.solutions,
+        {},
+        [],
+        false,
+      );
+      setMessages((previous) => [
+        ...previous,
+        {
+          question: name || "건너뛰기",
+          reply: {
+            answer: name ? `${name}님, 반가워요. ${answer}` : answer,
+            candidates: [],
+            tools: ["local-greeting"],
+            searched: 0,
+          },
+          snapshot,
+          revision: revision.current,
+        },
+      ]);
+      setQuestion("");
+      return;
+    }
+    if (
+      collecting &&
+      !explain &&
+      (nextAmount === "birth" || nextAmount === "spouseBirth")
+    ) {
+      const age =
+        /^(?:만\s*)?([1-9]\d{0,2})\s*(?:살|세)(?:이에요|이예요|입니다|예요)?[.!]?$/u.exec(
+          q,
+        )?.[1];
+      if (age) {
+        const subject = nextAmount === "birth" ? "본인" : "배우자";
+        setMessages((previous) => [
+          ...previous,
+          {
+            question: q,
+            reply: {
+              answer: `${age}세시군요. 연금 시작 시점을 계산하려면 ${subject}의 출생연월을 알려주세요. 예: 1970-02`,
+              candidates: [],
+              tools: ["local-age"],
+              searched: 0,
+            },
+            snapshot,
+            revision: revision.current,
+          },
+        ]);
+        if (clearDraft) setQuestion("");
+        return;
+      }
+    }
     const inputAction =
       collecting &&
       !explain &&
@@ -1226,10 +1372,18 @@ function PlannerWorkspace({
     const pendingPatch = collecting
       ? pendingIntake?.reply.intake?.patch
       : undefined;
-    const history = conversation.slice(-5).flatMap((m) => [
-      { role: "user" as const, content: m.question },
-      { role: "assistant" as const, content: m.reply.answer.slice(0, 6000) },
-    ]);
+    const history = conversation
+      .filter(
+        (m) =>
+          !m.reply.tools.some(
+            (tool) => tool === "local-greeting" || tool === "local-age",
+          ),
+      )
+      .slice(-5)
+      .flatMap((m) => [
+        { role: "user" as const, content: m.question },
+        { role: "assistant" as const, content: m.reply.answer.slice(0, 6000) },
+      ]);
     try {
       const response = await fetch("/api/agent", {
         method: "POST",
@@ -1506,6 +1660,9 @@ function PlannerWorkspace({
                 </p>
               </div>
               <div className="yp-landing-sea">
+                <p className="yp-landing-chat-tip">
+                  챗봇 질문에 하나씩 답해 보세요.
+                </p>
                 <div className="yp-landing-actions">
                   <button className="yp-primary" onClick={() => goTo("chat")}>
                     대화로 시작하기
@@ -1524,12 +1681,6 @@ function PlannerWorkspace({
               </div>
             </div>
           </section>
-        ) : activeView === "guide" ? (
-          <PlanningGuide
-            onStart={() => goTo("chat")}
-            onManual={() => goTo("manual")}
-            onExample={() => router.push("/dashboard/example")}
-          />
         ) : (
           <section className="yp-intro">
             <h1>
@@ -1930,13 +2081,53 @@ function PlannerWorkspace({
                   </dl>
                 </section>
               )}
+              {current && (
+                <section className="yp-card yp-plan-invitation">
+                  <p>
+                    다시 일하거나 퇴직할 때 대출을 갚으면 결과가 어떻게
+                    달라질까요?
+                  </p>
+                  <button
+                    id="yp-open-plan"
+                    className="yp-primary"
+                    onClick={openPlan}
+                    aria-controls="yp-plan"
+                    aria-expanded={planExpanded}
+                  >
+                    은퇴 계획 설정하기
+                  </button>
+                </section>
+              )}
+              {current && !current.passes && prepared.household && (
+                <ReserveComparison
+                  household={prepared.household}
+                  plan={s}
+                  current={current}
+                  onApply={(field, amount) => {
+                    setUndo({ h, s, origins });
+                    setH({ ...h, [field]: amount });
+                    setOrigins({ ...origins, [field]: "manual" });
+                    if (field === "jobIncome") setS({ ...s, job: true });
+                    setApplied("");
+                    setNotice("비교한 조건을 결과에 반영했어요.");
+                  }}
+                />
+              )}
               <div className="yp-analysis-controls">
                 <nav
                   className="yp-section-nav"
                   aria-label="결과 페이지 바로가기"
                 >
                   {result && <a href="#yp-result">결과 비교</a>}
-                  <a href="#yp-plan">은퇴 계획</a>
+                  <a
+                    href="#yp-plan"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      openPlan();
+                    }}
+                  >
+                    은퇴 계획
+                  </a>
                   {result && <a href="#yp-basis">계산 기준</a>}
                 </nav>
                 {result && current && (
@@ -2101,14 +2292,6 @@ function PlannerWorkspace({
                       화면의 금액은 원 단위로 반올림해요. 계산과 저장에는 원래
                       정밀도를 유지해요.
                     </p>
-                    <div className="yp-comparison-actions">
-                      <button
-                        className="yp-primary"
-                        onClick={() => jumpToSection("plan")}
-                      >
-                        은퇴 계획 설정하기
-                      </button>
-                    </div>
                   </section>
                 </section>
               )}
@@ -2117,6 +2300,7 @@ function PlannerWorkspace({
                 className="yp-card yp-scroll-section"
                 aria-labelledby="yp-plan-title"
                 tabIndex={-1}
+                hidden={!planExpanded}
               >
                 <div className="yp-section-heading">
                   <div>
@@ -2126,6 +2310,17 @@ function PlannerWorkspace({
                       항목에서 조절할 수 있어요.
                     </p>
                   </div>
+                  <button
+                    onClick={() => {
+                      if (tourActive) closeTour();
+                      setPlanOpen(false);
+                      requestAnimationFrame(() =>
+                        document.getElementById("yp-open-plan")?.focus(),
+                      );
+                    }}
+                  >
+                    접기
+                  </button>
                 </div>
                 <div className="yp-plan-list">
                   {(
@@ -2407,11 +2602,6 @@ function PlannerWorkspace({
                   >
                     결과 비교하기
                   </button>
-                  {!isExample && (
-                    <button onClick={() => goTo("chat")}>
-                      채팅으로 계획 조건 입력
-                    </button>
-                  )}
                   <button disabled={!result} onClick={() => openChat()}>
                     다른 계획 상담하기
                   </button>
@@ -2600,15 +2790,17 @@ function PlannerWorkspace({
                 {(!collecting || conversation.length === 0) && (
                   <div className="yp-agent-message yp-greeting">
                     <p>
-                      {collecting
-                        ? intakeAnswer(
-                            intake.household,
-                            intake.solutions,
-                            {},
-                            [],
-                            false,
-                          )
-                        : "생활비가 부족해지는 이유나 준비 방법을 바꾸면 달라지는 점을 물어보세요."}
+                      {askName
+                        ? "어떻게 불러드릴까요? 이름이나 별명을 알려주세요."
+                        : collecting
+                          ? intakeAnswer(
+                              intake.household,
+                              intake.solutions,
+                              {},
+                              [],
+                              false,
+                            )
+                          : "생활비가 부족해지는 이유나 준비 방법을 바꾸면 달라지는 점을 물어보세요."}
                     </p>
                   </div>
                 )}
@@ -2649,34 +2841,40 @@ function PlannerWorkspace({
                                 ),
                               )}
                             </ul>
-                            <button
-                              className="yp-primary"
-                              disabled={
-                                busy ||
-                                m !== pendingIntake ||
-                                m.revision !== revision.current ||
-                                m.snapshot !== snapshot ||
-                                !Object.keys(m.reply.intake.patch).length
-                              }
-                              onClick={() => applyIntake(intakeComplete)}
-                            >
-                              {m === pendingIntake
-                                ? intakeComplete
-                                  ? "정보 반영하기 및 결과 보기"
-                                  : "정보 반영하기"
-                                : Object.entries(m.reply.intake.patch).every(
-                                      ([k, v]) =>
-                                        h[k as keyof Household] === v &&
-                                        origins[k as keyof Household] ===
-                                          (m.reply.intake?.skipped?.some(
-                                            (field) => field === k,
-                                          )
-                                            ? "skipped"
-                                            : "chat"),
-                                    )
-                                  ? "반영된 정보"
-                                  : "이전 입력 정보"}
-                            </button>
+                            {!(
+                              inlineChat &&
+                              intakeComplete &&
+                              m === pendingIntake
+                            ) && (
+                              <button
+                                className="yp-primary"
+                                disabled={
+                                  busy ||
+                                  m !== pendingIntake ||
+                                  m.revision !== revision.current ||
+                                  m.snapshot !== snapshot ||
+                                  !Object.keys(m.reply.intake.patch).length
+                                }
+                                onClick={() => applyIntake(intakeComplete)}
+                              >
+                                {m === pendingIntake
+                                  ? intakeComplete
+                                    ? "정보 반영하기 및 결과 보기"
+                                    : "정보 반영하기"
+                                  : Object.entries(m.reply.intake.patch).every(
+                                        ([k, v]) =>
+                                          h[k as keyof Household] === v &&
+                                          origins[k as keyof Household] ===
+                                            (m.reply.intake?.skipped?.some(
+                                              (field) => field === k,
+                                            )
+                                              ? "skipped"
+                                              : "chat"),
+                                      )
+                                    ? "반영된 정보"
+                                    : "이전 입력 정보"}
+                              </button>
+                            )}
                             {m.snapshot !== snapshot &&
                               !Object.entries(m.reply.intake.patch).every(
                                 ([k, v]) => h[k as keyof Household] === v,
@@ -2854,117 +3052,151 @@ function PlannerWorkspace({
                   <button onClick={restoreInput}>되돌리기</button>
                 </div>
               )}
-              <form
-                className="yp-composer"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void ask();
-                }}
-              >
-                <label htmlFor="yp-question">
-                  {collecting ? "메시지 입력" : "궁금한 점을 물어보세요"}
-                </label>
-                <textarea
-                  id="yp-question"
-                  ref={agentInput}
-                  rows={3}
-                  maxLength={1500}
-                  placeholder={
-                    collecting
-                      ? "질문에 대한 답을 입력해 주세요."
-                      : "예: 계획 적용 전에는 왜 돈이 부족해지나요?"
-                  }
-                  value={question}
-                  readOnly={busy}
-                  onChange={(e) => setQuestion(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (
-                      e.key === "Enter" &&
-                      !e.shiftKey &&
-                      !e.nativeEvent.isComposing &&
-                      e.keyCode !== 229
-                    ) {
-                      e.preventDefault();
-                      void ask();
-                    }
-                  }}
-                />
-                <div className="yp-composer-actions">
-                  <small
-                    className={
-                      retrySeconds > 0 ? undefined : "yp-keyboard-hint"
-                    }
+              {chatComplete ? (
+                <div id="yp-tour-chat" className="yp-composer yp-chat-complete">
+                  <button
+                    className="yp-primary"
+                    onClick={() => applyIntake(true)}
                   >
-                    {retrySeconds > 0
-                      ? `${retrySeconds}초 뒤에 다시 보낼 수 있어요.`
-                      : "Enter 전송 · Shift+Enter 줄바꿈"}
-                  </small>
-                  {collecting && isSkippableMoneyField(nextAmount) && !busy && (
-                    <button
-                      type="button"
-                      className="yp-skip-amount"
-                      onClick={() => void ask("건너뛰기", false)}
-                      aria-label={`${inputLabels[nextAmount]} 건너뛰기 (0원)`}
-                    >
-                      {inputLabels[nextAmount]} 건너뛰기
-                    </button>
-                  )}
-                  {busy ? (
-                    <button
-                      type="button"
-                      onClick={() => abort.current?.abort()}
-                    >
-                      분석 중단
-                    </button>
-                  ) : (
-                    <button
-                      className="yp-primary"
-                      disabled={
-                        !question.trim() ||
-                        (retrySeconds > 0 &&
-                          !retirementHelp(question) &&
-                          !(
-                            collecting &&
-                            resolveIntakeInputAction(
-                              question,
-                              intake.household,
-                              intake.solutions,
-                            )
-                          ))
+                    정보 반영하기 및 결과 보기
+                  </button>
+                  <button
+                    onClick={() => {
+                      applyIntake(false);
+                      goTo("manual");
+                    }}
+                  >
+                    입력 수정
+                  </button>
+                </div>
+              ) : (
+                <form
+                  id="yp-tour-chat"
+                  className="yp-composer"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void ask();
+                  }}
+                >
+                  <label htmlFor="yp-question">
+                    {collecting ? "메시지 입력" : "궁금한 점을 물어보세요"}
+                  </label>
+                  <textarea
+                    id="yp-question"
+                    ref={agentInput}
+                    rows={3}
+                    maxLength={askName ? 40 : 1500}
+                    placeholder={
+                      askName
+                        ? "이름 또는 별명"
+                        : collecting
+                          ? "질문에 대한 답을 입력해 주세요."
+                          : "예: 계획 적용 전에는 왜 돈이 부족해지나요?"
+                    }
+                    value={question}
+                    readOnly={busy}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (
+                        e.key === "Enter" &&
+                        !e.shiftKey &&
+                        !e.nativeEvent.isComposing &&
+                        e.keyCode !== 229
+                      ) {
+                        e.preventDefault();
+                        void ask();
+                      }
+                    }}
+                  />
+                  <div className="yp-composer-actions">
+                    <small
+                      className={
+                        retrySeconds > 0 ? undefined : "yp-keyboard-hint"
                       }
                     >
-                      보내기
-                    </button>
-                  )}
-                </div>
-              </form>
+                      {retrySeconds > 0
+                        ? `${retrySeconds}초 뒤에 다시 보낼 수 있어요.`
+                        : "Enter 전송 · Shift+Enter 줄바꿈"}
+                    </small>
+                    {askName && (
+                      <button
+                        type="button"
+                        onClick={() => void ask("건너뛰기")}
+                      >
+                        건너뛰기
+                      </button>
+                    )}
+                    {!askName &&
+                      collecting &&
+                      isSkippableMoneyField(nextAmount) &&
+                      !busy && (
+                        <button
+                          type="button"
+                          className="yp-skip-amount"
+                          onClick={() => void ask("건너뛰기", false)}
+                          aria-label={`${inputLabels[nextAmount]} 건너뛰기 (0원)`}
+                        >
+                          {inputLabels[nextAmount]} 건너뛰기
+                        </button>
+                      )}
+                    {busy ? (
+                      <button
+                        type="button"
+                        onClick={() => abort.current?.abort()}
+                      >
+                        분석 중단
+                      </button>
+                    ) : (
+                      <button
+                        className="yp-primary"
+                        disabled={
+                          !question.trim() ||
+                          (retrySeconds > 0 &&
+                            !retirementHelp(question) &&
+                            !(
+                              collecting &&
+                              resolveIntakeInputAction(
+                                question,
+                                intake.household,
+                                intake.solutions,
+                              )
+                            ))
+                        }
+                      >
+                        보내기
+                      </button>
+                    )}
+                  </div>
+                </form>
+              )}
               {inlineChat && (
                 <aside
                   className="yp-panel-foot yp-chat-aside"
-                  aria-labelledby="yp-chat-aside-title"
+                  aria-label="입력 도움말"
                 >
-                  <h3 id="yp-chat-aside-title">입력과 결과</h3>
                   {!intakeComplete && !checkInput && (
                     <p className="yp-note">
                       필요한 정보를 입력하면 결과를 볼 수 있어요.
                     </p>
                   )}
-                  <div className="yp-actions">
-                    <button onClick={() => goTo("manual")}>
-                      직접 입력하기
-                    </button>
-                    <button
-                      className={intakeComplete ? "yp-primary" : undefined}
-                      onClick={() => applyIntake(true)}
-                    >
-                      내 결과 보기
-                    </button>
-                  </div>
-                  {intakeComplete && (
-                    <p className="yp-note">
-                      {optionalPlanHint(intakePrepared.optionalMissing) ||
-                        "구직급여나 재취업 월급 같은 은퇴 계획도 채팅으로 알려줄 수 있어요. 지금 바로 결과를 볼 수 있어요."}
-                    </p>
+                  {!chatComplete && (
+                    <div className="yp-actions">
+                      <button
+                        disabled={busy}
+                        onClick={() => {
+                          applyIntake(false);
+                          goTo("manual");
+                        }}
+                      >
+                        직접 입력하기
+                      </button>
+                      <button
+                        className={intakeComplete ? "yp-primary" : undefined}
+                        onClick={() => applyIntake(true)}
+                      >
+                        내 결과 보기
+                      </button>
+                    </div>
                   )}
                   {checkInput && (busy || !intakeComplete) && (
                     <p className="yp-error" role="alert">
@@ -2982,16 +3214,34 @@ function PlannerWorkspace({
           )}
         </div>
       </main>
+      {tourActive && (isExample || activeView === "manual" || inlineChat) && (
+        <ScreenTour
+          key={activeView}
+          steps={isExample ? resultTour : inlineChat ? chatTour : manualTour}
+          onClose={closeTour}
+          offset={isExample ? 2 : inlineChat ? 0 : 1}
+          previousHref={
+            isExample
+              ? "/dashboard#tour"
+              : inlineChat
+                ? undefined
+                : "/chat#tour"
+          }
+          nextHref={
+            isExample
+              ? undefined
+              : inlineChat
+                ? "/dashboard#tour"
+                : "/dashboard/example#tour"
+          }
+        />
+      )}
       <footer className="yp-footer">
         <div className="yp-footer-inner">
           <div className="yp-footer-top">
             <Link className="yp-brand" href="/main">
               afterfolio
             </Link>
-            <nav aria-label="하단 메뉴">
-              <Link href="/guide">이용안내</Link>
-              <Link href="/dashboard/example">권 부장 부부 예시</Link>
-            </nav>
           </div>
           <div className="yp-footer-details">
             <div>
@@ -2999,13 +3249,13 @@ function PlannerWorkspace({
                 <p>예시에서 변경한 조건과 대화는 내 결과에 저장되지 않아요.</p>
               ) : storageError ? (
                 <p role="status">{storageError}</p>
-              ) : activeView !== "home" && activeView !== "guide" ? (
+              ) : activeView !== "home" ? (
                 <p>입력과 대화는 이 브라우저에 자동 저장돼요.</p>
               ) : null}
               <p>참고용 시뮬레이션이며 상품 권유가 아니에요.</p>
               <p>실제 수급 자격·지급액·세금은 관련 기관에서 확인해 주세요.</p>
             </div>
-            {!isExample && activeView !== "home" && activeView !== "guide" && (
+            {!isExample && activeView !== "home" && (
               <button
                 className="yp-reset-button"
                 onClick={() => resetDialog.current?.showModal()}
