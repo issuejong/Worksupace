@@ -15,6 +15,7 @@ import {
   inputLabels,
   intakeAnswer,
   intakeQuestion,
+  nextIntakeField,
   resolveIntakeDate,
   resolveIntakeInputAction,
 } from "../../../lib/input";
@@ -142,6 +143,25 @@ export async function POST(req: Request) {
       const { question, household, solutions, pendingIntake } = parsed.data;
       const h = { ...blankHousehold(), ...household };
       const lastTurn = parsed.data.history.at(-1);
+      if (
+        /(?:\d[\d,.]*\s*(?:달러|유로|엔|위안|파운드|USD|EUR|JPY|CNY|GBP)|[$€¥]\s*\d)/i.test(
+          question,
+        )
+      ) {
+        const field = nextIntakeField(h, solutions);
+        return respond({
+          answer: [
+            "입력에 외화 금액이 있어요. 해당 금액을 원이나 만 원으로 다시 알려주세요.",
+            field && intakeQuestion(field),
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+          intake: { patch: {} },
+          candidates: [],
+          tools: ["collect"],
+          searched: 0,
+        });
+      }
       const date = resolveIntakeDate(
         question,
         h,

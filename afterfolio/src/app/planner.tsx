@@ -135,6 +135,8 @@ const fieldNames = Object.fromEntries(
   [
     ...groups.flatMap((g) => g.fields),
     ...assumptionFields,
+    ["hasSpouse", "배우자 여부"],
+    ["tenure", "근속연수"],
     ["jobIncome", "재취업 월급"],
     ["jobDelay", "재취업 대기 기간"],
     ["benefit", "구직급여 월액"],
@@ -156,6 +158,8 @@ const showValue = (v: unknown, key?: string) =>
         : `${fmt(v)}${key === "pensionOffset" || key === "homeMonth" ? "개월" : key === "homeYear" ? "년" : ""}`
       : String(v);
 function householdValue(value: unknown, key: string) {
+  if (key === "tenure" && typeof value === "number") return `${fmt(value)}년`;
+  if (value === undefined) return "미입력";
   if (key === "hasSpouse" && typeof value === "boolean")
     return value ? "있어요" : "없어요";
   const rate = [
@@ -345,11 +349,18 @@ function Charts({
     lo = Math.min(0, ...all),
     hi = Math.max(...all, after.reserve),
     padding = (hi - lo) * 0.08 || 100;
+  const describe = (label: string, scenario: Simulation) =>
+    `${label}. ${year}년 구매력 기준 최저 잔액 ${money(scenario.minAssets)}. ${scenario.firstNegative ? `최초 부족 ${dateText(scenario.firstNegative)}` : "자금 부족 없음"}.`;
   const plot = (which?: "before" | "after") => (
     <div
       className="yp-plot"
       role="img"
-      aria-label={`${which === "before" ? "계획 적용 전" : which === "after" ? "계획 적용 후" : "계획 적용 전후"} 금융자산 그래프. 최저 ${money((which === "before" ? before : after).minAssets)}, 최초 부족 ${dateText((which === "before" ? before : after).firstNegative)}.`}
+      aria-label={[
+        which !== "after" && describe("계획 적용 전", before),
+        which !== "before" && describe("계획 적용 후", after),
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
@@ -1096,7 +1107,6 @@ function PlannerWorkspace({
   }
   const inlineChat = activeView === "chat";
   const collecting = inlineChat || !result;
-  const chatComplete = inlineChat && intakeComplete && !busy;
   const chatting = inlineChat || chatOpen;
   const showConversation = chatting || hasOpenedChat;
   const settings = activeView === "manual";
@@ -1106,7 +1116,6 @@ function PlannerWorkspace({
         m.reply.tools.includes("local-greeting") ||
         m.reply.tools.includes("local-age")) === collecting,
   );
-  const askName = inlineChat && !intakeComplete && conversation.length === 0;
   const [checkInput, setCheckInput] = useState(false);
 
   function goTo(next: PlannerView) {
@@ -1319,32 +1328,6 @@ function PlannerWorkspace({
   }
   async function ask(prompt = question, clearDraft = true, explain = false) {
     const q = prompt.trim();
-    if (askName && !explain && q) {
-      const name = q === "건너뛰기" ? "" : q.slice(0, 40);
-      const answer = intakeAnswer(
-        intake.household,
-        intake.solutions,
-        {},
-        [],
-        false,
-      );
-      setMessages((previous) => [
-        ...previous,
-        {
-          question: name || "건너뛰기",
-          reply: {
-            answer: name ? `${name}님, 반가워요. ${answer}` : answer,
-            candidates: [],
-            tools: ["local-greeting"],
-            searched: 0,
-          },
-          snapshot,
-          revision: revision.current,
-        },
-      ]);
-      setQuestion("");
-      return;
-    }
     if (
       collecting &&
       !explain &&
@@ -1530,7 +1513,7 @@ function PlannerWorkspace({
   function csv() {
     if (!result) return;
     const lines = [
-      "모델,계획,월,수입,지출,운용수익,금융자산,기준년구매력자산,대출잔액,건강보험료,주택연금",
+      "모델,계획,월,수입(운용수익 포함·만 원),지출(만 원),운용수익(만 원),금융자산(명목·만 원),기준년 구매력 자산(만 원),대출잔액(만 원),건강보험료(만 원),주택연금(만 원)",
     ];
     for (const [name, r] of [
       ["계획 적용 전", result.before],
@@ -1730,13 +1713,19 @@ function PlannerWorkspace({
               }
             </h1>
             <p>
-              {activeView === "chat"
-                ? "필요한 정보를 하나씩 묻고, 입력한 내용으로 은퇴 후 생활비를 계산해요."
-                : activeView === "manual"
-                  ? "생활비, 모아둔 돈, 연금 예상액을 입력해 주세요."
-                  : !current
-                    ? "계산에 필요한 계획 조건을 확인해 주세요."
-                    : `분석 기간: ${h.start} ~ ${h.endYear}-12`}
+              {activeView === "chat" ? (
+                "필요한 정보를 하나씩 묻고, 입력한 내용으로 은퇴 후 생활비를 계산해요."
+              ) : activeView === "manual" ? (
+                "생활비, 모아둔 돈, 연금 예상액을 입력해 주세요."
+              ) : !current ? (
+                "계산에 필요한 계획 조건을 확인해 주세요."
+              ) : (
+                <>
+                  분석 기간 <span className="yp-date-token">{h.start}</span>
+                  {" ~ "}
+                  <span className="yp-date-token">{h.endYear}-12</span>
+                </>
+              )}
             </p>
           </section>
         )}
@@ -2114,6 +2103,13 @@ function PlannerWorkspace({
                       </dd>
                     </div>
                   </dl>
+                  {!hasPlan && h.beforeReturn !== h.planReturn && (
+                    <p className="yp-result-assumptions">
+                      준비 방법이 선택되지 않았어요. 연 수익률 가정은 적용 전{" "}
+                      {fmt(h.beforeReturn * 100)}%, 적용 후{" "}
+                      {fmt(h.planReturn * 100)}%예요.
+                    </p>
+                  )}
                 </section>
               )}
               {current && (
@@ -2825,17 +2821,15 @@ function PlannerWorkspace({
                 {(!collecting || conversation.length === 0) && (
                   <div className="yp-agent-message yp-greeting">
                     <p>
-                      {askName
-                        ? "어떻게 불러드릴까요? 이름이나 별명을 알려주세요."
-                        : collecting
-                          ? intakeAnswer(
-                              intake.household,
-                              intake.solutions,
-                              {},
-                              [],
-                              false,
-                            )
-                          : "생활비가 부족해지는 이유나 준비 방법을 바꾸면 달라지는 점을 물어보세요."}
+                      {collecting
+                        ? intakeAnswer(
+                            intake.household,
+                            intake.solutions,
+                            {},
+                            [],
+                            false,
+                          )
+                        : "생활비가 부족해지는 이유나 준비 방법을 바꾸면 달라지는 점을 물어보세요."}
                     </p>
                   </div>
                 )}
@@ -2962,12 +2956,15 @@ function PlannerWorkspace({
                           ...Object.keys(c.household)
                             .filter(
                               (k) =>
-                                c.household[k as keyof Household] !==
-                                previousHousehold[k],
+                                fieldNames[k] &&
+                                householdValue(
+                                  c.household[k as keyof Household],
+                                  k,
+                                ) !== householdValue(previousHousehold[k], k),
                             )
                             .map(
                               (k) =>
-                                `${fieldNames[k] || k}: ${householdValue(previousHousehold[k], k)} → ${householdValue(c.household[k as keyof Household], k)}`,
+                                `${fieldNames[k]}: ${householdValue(previousHousehold[k], k)} → ${householdValue(c.household[k as keyof Household], k)}`,
                             ),
                           ...Object.keys(c.plan)
                             .filter(
@@ -3087,123 +3084,91 @@ function PlannerWorkspace({
                   <button onClick={restoreInput}>되돌리기</button>
                 </div>
               )}
-              {chatComplete ? (
-                <div id="yp-tour-chat" className="yp-composer yp-chat-complete">
-                  <button
-                    className="yp-primary"
-                    onClick={() => applyIntake(true)}
-                  >
-                    정보 반영하기 및 결과 보기
-                  </button>
-                  <button
-                    onClick={() => {
-                      applyIntake(false);
-                      goTo("manual");
-                    }}
-                  >
-                    입력 수정
-                  </button>
-                </div>
-              ) : (
-                <form
-                  id="yp-tour-chat"
-                  className="yp-composer"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void ask();
-                  }}
-                >
-                  <label htmlFor="yp-question">
-                    {collecting ? "메시지 입력" : "궁금한 점을 물어보세요"}
-                  </label>
-                  <textarea
-                    id="yp-question"
-                    ref={agentInput}
-                    rows={3}
-                    maxLength={askName ? 40 : 1500}
-                    placeholder={
-                      askName
-                        ? "이름 또는 별명"
-                        : collecting
-                          ? "질문에 대한 답을 입력해 주세요."
-                          : "예: 계획 적용 전에는 왜 돈이 부족해지나요?"
+              <form
+                id="yp-tour-chat"
+                className="yp-composer"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void ask();
+                }}
+              >
+                <label htmlFor="yp-question">
+                  {collecting ? "메시지 입력" : "궁금한 점을 물어보세요"}
+                </label>
+                <textarea
+                  id="yp-question"
+                  ref={agentInput}
+                  rows={3}
+                  maxLength={1500}
+                  placeholder={
+                    collecting
+                      ? "질문에 답하거나 정정할 내용을 알려주세요."
+                      : "예: 계획 적용 전에는 왜 돈이 부족해지나요?"
+                  }
+                  value={question}
+                  readOnly={busy}
+                  onChange={(e) => setQuestion(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (
+                      e.key === "Enter" &&
+                      !e.shiftKey &&
+                      !e.nativeEvent.isComposing &&
+                      e.keyCode !== 229
+                    ) {
+                      e.preventDefault();
+                      void ask();
                     }
-                    value={question}
-                    readOnly={busy}
-                    onChange={(e) => setQuestion(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (
-                        e.key === "Enter" &&
-                        !e.shiftKey &&
-                        !e.nativeEvent.isComposing &&
-                        e.keyCode !== 229
-                      ) {
-                        e.preventDefault();
-                        void ask();
-                      }
-                    }}
-                  />
-                  <div className="yp-composer-actions">
-                    <small
-                      className={
-                        retrySeconds > 0 ? undefined : "yp-keyboard-hint"
+                  }}
+                />
+                <div className="yp-composer-actions">
+                  <small
+                    className={
+                      retrySeconds > 0 ? undefined : "yp-keyboard-hint"
+                    }
+                  >
+                    {retrySeconds > 0
+                      ? `${retrySeconds}초 뒤에 다시 보낼 수 있어요.`
+                      : "Enter 전송 · Shift+Enter 줄바꿈"}
+                  </small>
+                  {collecting && isSkippableMoneyField(nextAmount) && !busy && (
+                    <button
+                      type="button"
+                      className="yp-skip-amount"
+                      onClick={() => void ask("건너뛰기", false)}
+                      aria-label={`${inputLabels[nextAmount]} 건너뛰기 (0원)`}
+                    >
+                      {inputLabels[nextAmount]} 건너뛰기
+                    </button>
+                  )}
+                  {busy ? (
+                    <button
+                      type="button"
+                      onClick={() => abort.current?.abort()}
+                    >
+                      분석 중단
+                    </button>
+                  ) : (
+                    <button
+                      className="yp-primary"
+                      disabled={
+                        !question.trim() ||
+                        (retrySeconds > 0 &&
+                          !retirementHelp(question) &&
+                          !(
+                            collecting &&
+                            resolveIntakeInputAction(
+                              question,
+                              intake.household,
+                              intake.solutions,
+                            )
+                          ))
                       }
                     >
-                      {retrySeconds > 0
-                        ? `${retrySeconds}초 뒤에 다시 보낼 수 있어요.`
-                        : "Enter 전송 · Shift+Enter 줄바꿈"}
-                    </small>
-                    {askName && (
-                      <button
-                        type="button"
-                        onClick={() => void ask("건너뛰기")}
-                      >
-                        건너뛰기
-                      </button>
-                    )}
-                    {!askName &&
-                      collecting &&
-                      isSkippableMoneyField(nextAmount) &&
-                      !busy && (
-                        <button
-                          type="button"
-                          className="yp-skip-amount"
-                          onClick={() => void ask("건너뛰기", false)}
-                          aria-label={`${inputLabels[nextAmount]} 건너뛰기 (0원)`}
-                        >
-                          {inputLabels[nextAmount]} 건너뛰기
-                        </button>
-                      )}
-                    {busy ? (
-                      <button
-                        type="button"
-                        onClick={() => abort.current?.abort()}
-                      >
-                        분석 중단
-                      </button>
-                    ) : (
-                      <button
-                        className="yp-primary"
-                        disabled={
-                          !question.trim() ||
-                          (retrySeconds > 0 &&
-                            !retirementHelp(question) &&
-                            !(
-                              collecting &&
-                              resolveIntakeInputAction(
-                                question,
-                                intake.household,
-                                intake.solutions,
-                              )
-                            ))
-                        }
-                      >
-                        보내기
-                      </button>
-                    )}
-                  </div>
-                </form>
-              )}
+                      보내기
+                    </button>
+                  )}
+                </div>
+              </form>
               {inlineChat && (
                 <aside
                   className="yp-panel-foot yp-chat-aside"
@@ -3214,25 +3179,25 @@ function PlannerWorkspace({
                       필요한 정보를 입력하면 결과를 볼 수 있어요.
                     </p>
                   )}
-                  {!chatComplete && (
-                    <div className="yp-actions">
-                      <button
-                        disabled={busy}
-                        onClick={() => {
-                          applyIntake(false);
-                          goTo("manual");
-                        }}
-                      >
-                        직접 입력하기
-                      </button>
-                      <button
-                        className={intakeComplete ? "yp-primary" : undefined}
-                        onClick={() => applyIntake(true)}
-                      >
-                        내 결과 보기
-                      </button>
-                    </div>
-                  )}
+                  <div className="yp-actions">
+                    <button
+                      disabled={busy}
+                      onClick={() => {
+                        applyIntake(false);
+                        goTo("manual");
+                      }}
+                    >
+                      {intakeComplete ? "입력 수정" : "직접 입력하기"}
+                    </button>
+                    <button
+                      className={intakeComplete ? "yp-primary" : undefined}
+                      onClick={() => applyIntake(true)}
+                    >
+                      {intakeComplete && Object.keys(pendingPatch).length
+                        ? "정보 반영하기 및 결과 보기"
+                        : "내 결과 보기"}
+                    </button>
+                  </div>
                   {checkInput && (busy || !intakeComplete) && (
                     <p className="yp-error" role="alert">
                       {busy

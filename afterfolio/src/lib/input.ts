@@ -134,6 +134,7 @@ export function prepareScenario(h: Household, s: Solutions) {
     propertyHealthPremium: Number.isNaN(h.propertyHealthPremium)
       ? 0
       : h.propertyHealthPremium,
+    hasSpouse: !single,
     spouseBirth: single ? h.birth : h.spouseBirth,
     spouseIncome: single ? 0 : h.spouseIncome,
     spousePension: single ? 0 : h.spousePension,

@@ -36,6 +36,8 @@ const lookupTopics: [RegExp, keyof Household][] = [
 
 export function retirementHelp(question: string): string | undefined {
   const text = question.trim();
+  if (/^(?:안녕(?:하세요|하십니까)?|반가워요|hello|hi)[\s!.~?]*$/i.test(text))
+    return "안녕하세요. 은퇴 자금 계산에 필요한 입력을 도와드려요. 결과가 나오면 생활비가 부족한 이유나 다른 은퇴 계획의 결과를 물어보세요.";
   if (
     /(?:바꾸면|없으면|안\s*하면|했을\s*때|최적|가장\s*많|왜.*부족|계산\s*해\s*(?:줘|주세요))/.test(
       text,

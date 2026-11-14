@@ -1,3 +1,4 @@
+import { money } from "./money";
 import OpenAI from "openai";
 import { z } from "zod";
 import { withTransientRetry } from "./ai-reliability";
@@ -16,6 +17,7 @@ const householdPatch = z.object(householdSchema.shape).partial().strict();
 const planPatch = solutionSchema
   .partial()
   .extend({
+    homeMonth: z.number().int().min(1).max(12).optional(),
     pensionOffset: solutionSchema.shape.pensionOffset
       .describe(
         "정상 국민연금 개시월 대비 이동 개월. -60=60개월 조기, 0=정상, +60=60개월 연기. 퍼센트나 감액률이 아니다.",
@@ -208,7 +210,9 @@ export function executeHouseholdTool(
       (c) =>
         (!a.avoidShortfall || c.metrics.firstNegative === null) &&
         !c.metrics.warnings.some((w) =>
-          /주담대 잔액|지원 연령|상환보다 빠릅니다|상환 예정월이 분석 시작 전/.test(w),
+          /주담대 잔액|지원 연령|상환보다 빠릅니다|상환 예정월이 분석 시작 전/.test(
+            w,
+          ),
         ),
     );
     eligible.sort((x, y) => y.metrics[a.goal] - x.metrics[a.goal]);
@@ -231,6 +235,40 @@ export function executeHouseholdTool(
   }
   throw Error("지원하지 않는 도구입니다.");
 }
+function comparisonAnswer(
+  h: Household,
+  s: Solutions,
+  choices: Candidate[],
+  scope: string,
+) {
+  const current = calculate(h, s);
+  const facts = choices.map((choice, index) => {
+    const next = calculate(choice.household, choice.plan);
+    const delta = next.endAssets - current.endAssets;
+    const difference =
+      Math.round(delta * 10000) === 0
+        ? "기존과 같아요"
+        : `기존보다 ${money(Math.abs(delta))} ${delta > 0 ? "늘어요" : "줄어요"}`;
+    const firstJob = (simulation: typeof current) =>
+      simulation.rows.find((row) => row.components.재취업 > 0)?.date;
+    const previousJob = firstJob(current);
+    const newJob = firstJob(next);
+    const timing =
+      previousJob && newJob && previousJob !== newJob
+        ? ` 재취업 소득 시작월은 ${previousJob}에서 ${newJob}로 바뀌어요.`
+        : "";
+    return `${index + 1}. ${choice.household.endYear}년 말 예상 잔액(명목)은 ${money(next.endAssets)}으로 ${difference}.${timing}`;
+  });
+  return [
+    scope,
+    `현재 계획의 ${h.endYear}년 말 예상 잔액(명목)은 ${money(current.endAssets)}이에요.`,
+    facts.join("\n"),
+    "카드에서 변경 조건을 확인하고 적용할 수 있어요.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 export async function runHouseholdAgent(
   client: OpenAI,
   model: string,
@@ -283,6 +321,10 @@ export async function runHouseholdAgent(
     searched: 0,
   };
   let calls = 0;
+  let searchScope = "";
+  let monthlyAnswer = "";
+  const ranked = new Map<string, Candidate>();
+  const proposed = new Map<string, Candidate>();
   for (let round = 0; round < 4; round++) {
     const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming =
       {
@@ -315,11 +357,16 @@ export async function runHouseholdAgent(
         !result.tools.includes("search")
       )
         throw Error("비교 탐색이 완료되지 않았습니다. 다시 질문해 주세요.");
-      return {
-        ...result,
-        answer: msg.content.trim(),
-        candidates: result.candidates.slice(-6),
-      };
+      const candidates = [...(searchScope ? ranked : proposed).values()].slice(
+        0,
+        6,
+      );
+      const answer = candidates.length
+        ? comparisonAnswer(h, s, candidates, searchScope)
+        : searchScope
+          ? `${searchScope}\n\n이 조건을 충족하는 조합을 찾지 못했어요.`
+          : monthlyAnswer || msg.content.trim();
+      return { ...result, answer, candidates };
     }
     for (const call of msg.tool_calls) {
       let output: unknown;
@@ -333,7 +380,53 @@ export async function runHouseholdAgent(
           s,
           input.unavailableFields,
         );
-        result.candidates.push(...analysis.candidates);
+        const name = call.function.name;
+        if (name === "search") {
+          searchScope = `${analysis.searched}개 조합을 계산했어요. 구직급여·재취업·대출 상환·배우자 연금 추납·주택연금을 켜고 끄고, 주택연금 시작 연도는 최대 3개, 국민연금 시작 시점은 최대 4개를 비교했어요. 생활비·수익률과 가구 정보는 고정했어요. 주택연금 대출 잔액은 금융자산에서 차감하지 않았어요.`;
+          const { avoidShortfall, locks, goal } = schemas.search.parse(
+            JSON.parse(call.function.arguments),
+          );
+          const lockNames = {
+            benefits: "구직급여",
+            job: "재취업",
+            repay: "대출 상환",
+            catchup: "배우자 연금 추납",
+            home: "주택연금",
+            homeYear: "주택연금 시작 연도",
+            homeMonth: "주택연금 시작 월",
+            homeOverride: "주택연금 월액",
+            pensionOffset: "국민연금 시작 시점",
+          };
+          const fixed = (Object.keys(locks) as (keyof Solutions)[]).map(
+            (key) => lockNames[key],
+          );
+          searchScope += ` ${goal === "endAssets" ? "기말 잔액" : "분석 기간 최저 잔액"}이 큰 순서예요.`;
+          if (avoidShortfall)
+            searchScope += " 자금이 부족해지는 달이 없는 조합만 골랐어요.";
+          if (fixed.length)
+            searchScope += ` 추가로 고정한 조건은 ${fixed.join(", ")}이에요.`;
+          ranked.clear();
+        }
+        if ("month" in analysis.data && analysis.data.month) {
+          const row = analysis.data.month;
+          const before = schemas.inspect.parse(
+            JSON.parse(call.function.arguments),
+          ).before;
+          const gap = row.income - row.expenses;
+          monthlyAnswer = [
+            `${row.date} ${before ? "계획 적용 전" : "현재 계획"}의 수입은 ${money(row.income)}, 지출은 ${money(row.expenses)}이에요.`,
+            `이달에는 ${money(Math.abs(gap))} ${gap < 0 ? "적자" : "흑자"}였어요.`,
+            `생활비 ${money(row.components.생활비)}, 대출 상환 ${money(row.components.대출상환)}, 건강보험료 ${money(row.components.건강보험)}가 지출에 포함돼요.`,
+            row.assets < 0
+              ? `월말에 충당하지 못한 누적 생활자금은 ${money(-row.assets)}이에요.`
+              : `월말 잔액은 ${money(row.assets)}이에요.`,
+          ].join(" ");
+        }
+        const target = name === "search" ? ranked : proposed;
+        for (const c of analysis.candidates) {
+          const key = JSON.stringify([c.household, c.plan]);
+          if (!target.has(key)) target.set(key, c);
+        }
         result.tools.push(call.function.name);
         result.searched += analysis.searched;
         output = analysis.data;

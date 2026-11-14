@@ -205,3 +205,42 @@ it("preserves configured endpoint access protection", async () => {
   );
   expect(response.status).toBe(401);
 });
+
+it("keeps the existing plan month and returns exact comparison amounts", async () => {
+  const create = vi
+    .fn()
+    .mockResolvedValueOnce(
+      tool("compare", {
+        candidates: [
+          {
+            name: "재취업 월급 150만 원",
+            household: { jobIncome: 150 },
+            plan: {},
+          },
+          { name: "같은 조건", household: { jobIncome: 150 }, plan: {} },
+        ],
+      }),
+    )
+    .mockResolvedValueOnce({
+      choices: [{ message: { role: "assistant", content: "임의 금액 123원" } }],
+    });
+  const reply = await runHouseholdAgent(
+    { chat: { completions: { create } } } as unknown as OpenAI,
+    "test",
+    input,
+    new AbortController().signal,
+  );
+  expect(reply.candidates).toHaveLength(1);
+  expect(reply.answer).toContain("87,430,654원");
+  expect(reply.answer).toContain("48,018,753원");
+  expect(reply.answer).not.toContain("123원");
+  const result = executeHouseholdTool(
+    "compare",
+    {
+      candidates: [{ name: "재취업", household: { jobIncome: 150 }, plan: {} }],
+    },
+    example,
+    { ...adopted, homeMonth: 7 },
+  );
+  expect(result.candidates[0].plan.homeMonth).toBe(7);
+});
