@@ -376,7 +376,7 @@ function Charts({
             tick={{ fill: "var(--muted)" }}
           />
           <YAxis
-            width={80}
+            width="auto"
             domain={[lo - padding, hi + padding]}
             tickFormatter={(v) => moneyAxis(Number(v))}
             tickLine={false}
@@ -1143,12 +1143,42 @@ function PlannerWorkspace({
     });
   }
 
+  useEffect(() => {
+    if (!chatOpen) return;
+    const viewport = window.visualViewport;
+    const panel = document.getElementById("yp-agent");
+    if (!viewport || !panel) return;
+    const sync = () => {
+      panel.style.setProperty("--chat-viewport-height", `${viewport.height}px`);
+      panel.style.setProperty("--chat-viewport-top", `${viewport.offsetTop}px`);
+    };
+    const mobile = window.matchMedia("(max-width: 849px)");
+    const root = document.documentElement;
+    const previousOverflow = root.style.overflow;
+    const lockScroll = () => {
+      root.style.overflow = mobile.matches ? "hidden" : previousOverflow;
+    };
+    sync();
+    lockScroll();
+    mobile.addEventListener("change", lockScroll);
+    viewport.addEventListener("resize", sync);
+    viewport.addEventListener("scroll", sync);
+    return () => {
+      root.style.overflow = previousOverflow;
+      mobile.removeEventListener("change", lockScroll);
+      viewport.removeEventListener("resize", sync);
+      viewport.removeEventListener("scroll", sync);
+      panel.style.removeProperty("--chat-viewport-height");
+      panel.style.removeProperty("--chat-viewport-top");
+    };
+  }, [chatOpen]);
+
   function openChat() {
     setHasOpenedChat(true);
     setChatOpen(true);
     requestAnimationFrame(() => {
       const touchLayout = window.matchMedia(
-        "(max-width: 700px), (pointer: coarse)",
+        "(max-width: 849px), (pointer: coarse)",
       ).matches;
       (touchLayout ? chatClose.current : agentInput.current)?.focus({
         preventScroll: true,
